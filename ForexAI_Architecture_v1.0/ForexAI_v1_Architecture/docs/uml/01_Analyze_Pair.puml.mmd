@@ -1,0 +1,31 @@
+sequenceDiagram
+    actor User
+    participant React as React Dashboard
+    participant API as ASP.NET Core API
+    participant DB as PostgreSQL
+    participant AI as Python AI Service
+    participant Graph as LangGraph
+    participant Agents as Specialist Agents
+    participant Model as Own ML Model
+    participant LLM as LLM Provider
+
+    User->>React: Select pair + timeframe
+    React->>API: POST /api/analysis
+    API->>DB: Load market data + memory
+    DB-->>API: Context
+    API->>AI: AnalysisRequest
+    AI->>Graph: Start analysis
+    Graph->>Agents: Run market/technical/fundamental analysis
+    Agents->>Model: Request prediction/features
+    Model-->>Agents: Prediction + probability
+    Agents->>LLM: Interpret structured evidence
+    LLM-->>Agents: Structured interpretation
+    Agents-->>Graph: Agent results
+    Graph->>Graph: Risk evaluation
+    Graph->>Graph: Decision aggregation
+    Graph-->>AI: Structured trading signal
+    AI-->>API: AnalysisResponse
+    API->>DB: Persist agent runs + signal
+    DB-->>API: Signal ID
+    API-->>React: Signal + agent results
+    React-->>User: Display BUY/SELL/HOLD for review

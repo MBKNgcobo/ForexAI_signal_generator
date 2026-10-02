@@ -3,13 +3,16 @@ FROM python:3.14-slim
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PYTHONUNBUFFERED=1
 
+# requirements.txt is copied on its own and installed before any other build
+# step so this (slow) layer stays cached while the source changes.
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Only the application and the trained model artifacts are copied into the
 # image. ``.dockerignore`` keeps secrets (.env), data and tests out.

@@ -1,0 +1,51 @@
+﻿@ForexAI_HostAddress = https://localhost:7296
+
+### Health
+GET https://localhost:7296/health
+
+### Multi-Agent Analysis
+POST https://localhost:7296/api/Analysis
+Content-Type: application/json
+
+{
+  "forex_pair_id": "11111111-1111-1111-1111-111111111111",
+  "symbol": "EURUSD",
+  "timeframe": "FourHours"
+}
+### Reject signal
+
+POST https://localhost:7296/api/Signals/e8e6b375-6d2c-444e-8c70-348fce01d3ff/reject
+
+### Accept signal
+
+POST https://localhost:7296/api/Signals/d40f327f-764d-448d-af6b-b193b07f4821/accept
+
+### Market data
+
+GET https://localhost:7296/api/MarketData/EURUSD?timeframe=FifteenMinutes&limit=10
+
+### Forex Pairs
+
+GET https://localhost:7296/api/ForexPairs
+
+### Timeframes
+GET https://localhost:7296/api/ForexPairs
+
+### Signal
+GET https://localhost:7296/api/Signals?page=2&pageSize=10
+
+###analyis
+POST https://localhost:7296/api/Analysis
+Content-Type: application/json
+
+{
+  "forex_pair_id": "11111111-1111-1111-1111-111111111111",
+  "symbol": "EURUSD",
+  "timeframe": "FifteenMinutes"
+}
+
+###signal accept
+POST https://localhost:7296/api/Signals/cc2673f7-46a3-499a-83b4-b2ef481a7f4e/accept
+
+###
+GET https://localhost:7296/api/Signals

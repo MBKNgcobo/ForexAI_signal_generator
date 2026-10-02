@@ -1,0 +1,14 @@
+sequenceDiagram
+    participant Provider as Market Data Provider
+    participant API as ASP.NET Core API
+    participant DB as PostgreSQL
+    participant React as React Dashboard
+
+    loop Near-live polling / streaming
+        Provider-->>API: New market candle/tick
+        API->>API: Validate + normalise data
+        API->>DB: Store/update market data
+        DB-->>API: Stored
+        API-->>React: Market update
+        React->>React: Update chart and latest price
+    end

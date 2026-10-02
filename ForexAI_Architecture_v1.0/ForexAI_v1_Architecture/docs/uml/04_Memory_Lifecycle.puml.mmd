@@ -1,0 +1,17 @@
+sequenceDiagram
+    actor User
+    participant API as ASP.NET Core API
+    participant DB as PostgreSQL
+    participant AI as Python AI Service
+    participant Graph as LangGraph
+
+    User->>API: Request new analysis
+    API->>DB: Load session/short-term/long-term memory
+    DB-->>API: Relevant memory
+    API->>AI: AnalysisRequest + memory context
+    AI->>Graph: Run workflow
+    Graph-->>AI: Analysis + observations
+    AI-->>API: Structured result
+    API->>DB: Persist new analysis and selected memory
+    DB-->>API: Stored
+    API-->>User: Result available

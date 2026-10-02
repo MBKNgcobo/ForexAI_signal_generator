@@ -1,0 +1,39 @@
+digraph ForexAI {
+  graph [rankdir=LR, bgcolor="white", pad="0.2", nodesep="0.45", ranksep="0.7", fontname="Arial"];
+  node [shape=box, style="rounded,filled", fillcolor="#F7F7F7", color="#444444", fontname="Arial", fontsize=10, margin="0.15,0.1"];
+  edge [color="#555555", fontname="Arial", fontsize=9];
+
+  user [label="User", fillcolor="#EDEDED"];
+  react [label="React Dashboard"];
+  api [label="ASP.NET Core API\nC# Application Host"];
+  app [label="Application Layer\nUse Cases / Services"];
+  domain [label="Domain Layer\nEntities / Rules"];
+  infra [label="Infrastructure\nEF Core / External Adapters"];
+  pg [label="PostgreSQL", shape=cylinder, fillcolor="#F4F4F4"];
+  ai [label="Python AI Service\nFastAPI"];
+  orchestrator [label="LangGraph Orchestrator"];
+  agents [label="Specialist Agents\nMarket / Technical / Fundamental / Quant / Risk / Decision"];
+  model [label="Model Service\nOwn ML Models"];
+  llm [label="LLM Provider Abstraction\nOpenAI / Hugging Face / Local"];
+  market [label="Market Data Provider"];
+  econ [label="Economic / News Data"];
+
+  user -> react [label="interact"];
+  react -> api [label="HTTPS / JSON"];
+  api -> app;
+  app -> domain;
+  app -> infra;
+  infra -> pg;
+  app -> ai [label="analysis request"];
+  ai -> orchestrator;
+  orchestrator -> agents;
+  agents -> model [label="prediction"];
+  agents -> llm [label="structured evidence"];
+  model -> agents [label="prediction"];
+  llm -> agents [label="interpretation"];
+  agents -> orchestrator [label="results"];
+  orchestrator -> ai [label="signal"];
+  ai -> api [label="structured response"];
+  market -> api [label="price data"];
+  econ -> ai [label="fundamental context"];
+}

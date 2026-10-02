@@ -1,0 +1,26 @@
+sequenceDiagram
+    actor User
+    participant React as React Dashboard
+    participant API as ASP.NET Core API
+    participant DB as PostgreSQL
+    participant Audit as Audit Log
+
+    User->>React: Review signal
+    React->>API: POST /api/signals/{id}/accept OR reject
+    API->>DB: Load signal
+    DB-->>API: Signal + status
+    API->>API: Validate signal state + user permission
+
+    alt Accept
+        API->>DB: Set status = Accepted
+        API->>Audit: Record acceptance
+        Audit-->>API: Recorded
+        API-->>React: Accepted signal
+        React-->>User: Confirmation
+    else Reject
+        API->>DB: Set status = Rejected
+        API->>Audit: Record rejection
+        Audit-->>API: Recorded
+        API-->>React: Rejected signal
+        React-->>User: Confirmation
+    end

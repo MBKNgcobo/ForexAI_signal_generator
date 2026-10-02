@@ -1,0 +1,145 @@
+services:
+
+  postgres:
+    image: postgres:17
+    container_name: forexai-postgres
+
+    environment:
+      POSTGRES_DB: forexai
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    ports:
+      - "5434:5432"
+
+    volumes:
+      - forexai-postgres-data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d forexai"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  python-ai:
+    build:
+      context: ./forexai-ai
+      dockerfile: Dockerfile
+
+    container_name: forexai-python-ai
+
+    environment:
+      TWELVE_DATA_API_KEY: ${TWELVE_DATA_API_KEY}
+      LLM_PROVIDER: ${LLM_PROVIDER}
+
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL}
+      OPENROUTER_FALLBACK_MODELS: ${OPENROUTER_FALLBACK_MODELS}
+
+      OPENROUTER_SITE_NAME: ${OPENROUTER_SITE_NAME}
+      OPENROUTER_SITE_URL: ${OPENROUTER_SITE_URL}
+      
+      RAG_DB_HOST: postgres
+      RAG_DB_PORT: 5432
+      RAG_DB_NAME: forexai
+      RAG_DB_USER: postgres
+      RAG_DB_PASSWORD: ${POSTGRES_PASSWORD}
+
+      SOTW_API_KEY: ${SOTW_API_KEY}
+      BUSINESS_QUANT_API_KEY: ${BUSINESS_QUANT_API_KEY}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${DATABASE_PASSWORD_URLENCODED}@postgres:5432/${POSTGRES_DB}
+    ports:
+      - "8001:8000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  db-migrate:
+    build:
+      context: ./ForexAI
+      dockerfile: Dockerfile
+    container_name: forexai-db-migrate
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__ForexAiDatabase: "Host=postgres;Port=5432;Database=forexai;Username=postgres;Password=${POSTGRES_PASSWORD}"
+      PythonApi__BaseUrl: http://python-ai:8000
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Jwt__Key: ${JWT_KEY}
+      HttpsRedirection__Enabled: "false"
+      Cors__AllowedOrigins__0: ${CORS_ALLOWED_ORIGIN}
+    command: ["dotnet", "ForexAI.Api.dll", "--migrate"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+  csharp-api:
+    build:
+      context: ./ForexAI
+      dockerfile: Dockerfile
+
+    container_name: forexai-csharp-api
+
+    environment:
+
+      ASPNETCORE_ENVIRONMENT: Production
+
+      ConnectionStrings__ForexAiDatabase: >-
+        Host=postgres;
+        Port=5432;
+        Database=forexai;
+        Username=postgres;
+        Password=${POSTGRES_PASSWORD}
+
+      PythonApi__BaseUrl: http://python-ai:8000
+      Jwt__Issuer: ForexAI
+      Jwt__Audience: ForexAI
+      Jwt__Key: ${JWT_KEY}
+
+      HttpsRedirection__Enabled: "false"
+
+      Cors__AllowedOrigins__0: ${CORS_ALLOWED_ORIGIN}
+
+        
+    volumes:
+      - forexai-dataprotection-keys:/root/.aspnet/DataProtection-Keys
+    ports:
+      - "8080:8080"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+      python-ai:
+        condition: service_started
+
+      db-migrate:
+        condition: service_completed_successfully
+
+
+  dashboard:
+    build:
+      context: ./forexai-dashboard
+      dockerfile: Dockerfile
+
+    container_name: forexai-dashboard
+
+    ports:
+      - "80:80"
+
+    depends_on:
+      - csharp-api
+
+
+volumes:
+
+  forexai-postgres-data:
+  forexai-dataprotection-keys:

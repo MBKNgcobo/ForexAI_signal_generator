@@ -1,47 +1,51 @@
-# ---------------------------------------------------------------------------
-# Secrets. Never commit real credentials.
-# .env.example is intentionally allowed through so the contract is documented.
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# ForexAI platform — repository-wide ignores.
+# Sub-projects keep their own .gitignore (ForexAI/, forexai-dashboard/,
+# forexai-ai/); this file covers the root and anything not owned by one of
+# them.
+# ===========================================================================
+
+# --- Secrets ----------------------------------------------------------------
+# Root-level ".env" holds docker-compose interpolation values (DB password,
+# JWT signing key, provider API keys). Never commit it.
 .env
 .env.*
 !.env.example
 
-# ---------------------------------------------------------------------------
-# Python
-# ---------------------------------------------------------------------------
+# --- Python (root-level caches; forexai-ai/ has its own) -------------------
 __pycache__/
 *.py[cod]
-*.pyo
+.venv/
+venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
 .coverage.*
 htmlcov/
-.venv/
-venv/
 
-# ---------------------------------------------------------------------------
-# Build / packaging
-# ---------------------------------------------------------------------------
-build/
+# --- Node / frontend (forexai-dashboard/ has its own) ----------------------
+node_modules/
 dist/
-*.egg-info/
+dist-ssr/
+*.local
 
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-# Project artifacts
-# ---------------------------------------------------------------------------
-# Generated datasets (downloaded history, model datasets, prediction dumps).
-# Regenerate with ``python -m app.models.build_dataset``; keeping 70+ MB of
-# CSVs out of git keeps clones fast. The directory itself is preserved via
-# the .gitkeep placeholder.
-# ---------------------------------------------------------------------------
-data/**
-!data/.gitkeep
-# Trained model binaries are large, environment-specific blob files.
-models/*.joblib
-model_artifacts/*.joblib
+# --- .NET / Visual Studio (ForexAI/ has the full VS template list) ---------
+.vs/
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+
+# --- Generated artifacts ---------------------------------------------------
+# Large, environment-specific blobs: datasets, trained models, backups.
+*.joblib
+forexai-ai/data/**
+!forexai-ai/data/.gitkeep
 backups/
-file-structure.txt
 *.log
+
+# --- Stray scratch files at the repo root ----------------------------------
+# Local editor dumps with no stable location/name.
+/app.tsx file and app.ts and program.cs
+/package-lock.json
