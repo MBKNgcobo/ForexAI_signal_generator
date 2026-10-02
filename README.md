@@ -9,7 +9,7 @@
 ![Python](https://img.shields.io/badge/python-3.14-blue?logo=python&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![Docker](https://img.shields.io/badge/docker-compose-ready-2496ED?logo=docker&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-78%20(Python)%20%2B%20(xUnit)-brightgreen)
+![Tests](https://img.shields.io/badge/tests-78%2B-brightgreen)
 
 [Architecture](#architecture) · [Components](#components) · [Quick start](#quick-start) · [Configuration](#configuration) · [Testing](#testing)
 
