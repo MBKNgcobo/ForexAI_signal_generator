@@ -1,0 +1,33 @@
+# Virtual environments and caches
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Version control
+.git
+.gitignore
+
+# ---------------------------------------------------------------------------
+# Secrets: never bake credentials into an image layer. Supply them at runtime
+# (docker run -e / compose env_file / a secret manager).
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------------------------
+# Repo-only assets that the runtime does not need.
+# NOTE: "models" is intentionally NOT excluded - the Dockerfile must COPY it.
+# ---------------------------------------------------------------------------
+data
+tests
+scripts
+backups
+file-structure.txt
+*.log
+Dockerfile
+README.md

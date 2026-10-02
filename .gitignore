@@ -1,0 +1,47 @@
+# ---------------------------------------------------------------------------
+# Secrets. Never commit real credentials.
+# .env.example is intentionally allowed through so the contract is documented.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+
+# ---------------------------------------------------------------------------
+# Build / packaging
+# ---------------------------------------------------------------------------
+build/
+dist/
+*.egg-info/
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Project artifacts
+# ---------------------------------------------------------------------------
+# Generated datasets (downloaded history, model datasets, prediction dumps).
+# Regenerate with ``python -m app.models.build_dataset``; keeping 70+ MB of
+# CSVs out of git keeps clones fast. The directory itself is preserved via
+# the .gitkeep placeholder.
+# ---------------------------------------------------------------------------
+data/**
+!data/.gitkeep
+# Trained model binaries are large, environment-specific blob files.
+models/*.joblib
+model_artifacts/*.joblib
+backups/
+file-structure.txt
+*.log

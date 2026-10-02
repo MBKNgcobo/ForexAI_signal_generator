@@ -1,0 +1,10 @@
+[tool.pytest.ini_options]
+# Make test discovery hermetic regardless of how pytest is invoked.
+# Without this, "from tests.fakes.fake_llm import ..." only resolves when the
+# suite is started as "python -m pytest" (which injects the CWD).
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning:anyio.*",
+]
