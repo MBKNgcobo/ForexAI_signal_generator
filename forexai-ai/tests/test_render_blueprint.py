@@ -31,7 +31,15 @@ EXPECTED_SERVICES = {
     "forexai-python-ai": "web",
     "forexai-csharp-api": "web",
     "forexai-dashboard": "web",
-    "forexai-db-migrate": "cron",
+}
+
+#: Plans Render accepts per service type. Cron jobs deliberately have no
+#: entry: they are not free ("free not a valid plan for service type cron")
+#: and each one carries a minimum monthly charge, so migrations run from
+#: .github/workflows/db-migrate.yml instead.
+VALID_PLANS = {
+    "web": {"free"},
+    "worker": {"free"},
 }
 
 
@@ -144,12 +152,12 @@ def test_no_secret_is_hardcoded_in_the_blueprint(services):
     assert not offenders, f"hardcoded secrets: {offenders}"
 
 
-def test_cors_origin_is_on_the_web_api_not_the_cron_job(services):
-    """The regression: CORS drifted onto the migration job.
+def test_cors_origin_is_on_the_web_api(services):
+    """The regression: CORS had drifted onto a migration cron job.
 
-    The browser-facing service is csharp-api. Putting the allowed origin on
-    the cron job leaves the API with an empty origin list, which blocks any
-    direct cross-origin call.
+    The browser-facing service is csharp-api. An allowed origin that lives on
+    some other service leaves the API with an empty origin list, which blocks
+    any direct cross-origin call.
     """
 
     assert "Cors__AllowedOrigins__0" in _env(
@@ -157,10 +165,52 @@ def test_cors_origin_is_on_the_web_api_not_the_cron_job(services):
         "forexai-csharp-api",
     )
 
-    assert "Cors__AllowedOrigins__0" not in _env(
-        services,
-        "forexai-db-migrate",
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(EXPECTED_SERVICES),
+)
+def test_every_service_declares_a_plan_render_accepts(services, name):
+    service = services[name]
+
+    assert "plan" in service, f"{name}: Render needs an explicit plan"
+
+    valid = VALID_PLANS.get(service["type"], set())
+
+    assert service["plan"] in valid, (
+        f"{name}: plan {service['plan']!r} is not valid for a "
+        f"{service['type']} service (allowed: {sorted(valid) or 'none'})"
     )
+
+
+def test_no_service_uses_a_plan_render_rejects(services):
+    """Guards the deploy-time error: "free not a valid plan for cron".
+
+    Render rejects the whole blueprint on an unknown plan, so this is worth
+    asserting explicitly: a cron job added here for convenience would cost
+    money every month as well as failing to sync.
+    """
+
+    offenders = [
+        (name, service.get("plan"))
+        for name, service in services.items()
+        if service.get("plan") not in VALID_PLANS.get(service["type"], set())
+    ]
+
+    assert not offenders, (
+        f"plans Render would reject: {offenders}. Cron jobs are not free; "
+        f"use .github/workflows/db-migrate.yml for migrations."
+    )
+
+
+def test_migrations_are_not_a_render_cron_job(services):
+    """Render cron jobs carry a minimum monthly charge; keep them out."""
+
+    assert not [
+        name
+        for name, service in services.items()
+        if service["type"] == "cron"
+    ], "move scheduled work to GitHub Actions to stay at $0"
 
 
 def test_python_service_readiness_probe_is_configured(services):

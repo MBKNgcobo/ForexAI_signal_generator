@@ -24,8 +24,16 @@ your PC:  MT5 terminal + run_signal_bridge.py
    └── https://<random>.trycloudflare.com/signal?token=<BRIDGE_TOKEN>
 ```
 
-**Total cost: $0.** Render, Neon, UptimeRobot and cloudflared are all
-card-free. You only pay for the API keys you already use.
+**Total cost: $0.** Render (3 free web services), Neon, GitHub Actions,
+UptimeRobot and cloudflared are all card-free. You only pay for the API keys
+you already use.
+
+> **Why there is no cron service.** Render cron jobs have no free tier —
+> `plan: free` is rejected with *"free not a valid plan for service type
+> cron"*, and every cron service carries a **minimum monthly charge**.
+> Database migrations therefore run from
+> `.github/workflows/db-migrate.yml`, which is free and can be triggered by
+> hand from the Actions tab.
 
 ---
 
@@ -119,14 +127,13 @@ You need the same database for two services, set separately:
 
 Render → **New → Blueprint** → select this repository → **Apply**.
 
-`render.yaml` at the repository root defines four services:
+`render.yaml` at the repository root defines three web services:
 
-| Service | Type | Health check |
-| --- | --- | --- |
-| `forexai-python-ai` | web (free) | `/ready` |
-| `forexai-csharp-api` | web (free) | `/health` |
-| `forexai-dashboard` | web (free) | `/health` |
-| `forexai-db-migrate` | cron (free) | daily 03:17 UTC |
+| Service | Type | Plan | Health check |
+| --- | --- | --- | --- |
+| `forexai-python-ai` | web | free | `/ready` |
+| `forexai-csharp-api` | web | free | `/health` |
+| `forexai-dashboard` | web | free | `/health` |
 
 Render prompts for every value marked `sync: false`. Fill them in as:
 
@@ -141,10 +148,6 @@ Render prompts for every value marked `sync: false`. Fill them in as:
 - `ConnectionStrings__ForexAiDatabase`
 - `PythonApi__ApiKey` → **paste the generated `AI_SERVICE_API_KEY`**
 - `Cors__AllowedOrigins__0` = `https://forexai-dashboard.onrender.com`
-
-**db-migrate**
-- `ConnectionStrings__ForexAiDatabase`
-- `Jwt__Key` → the value Render generated for `csharp-api`
 
 > ⚠️ **The two API keys must match exactly.** If `csharp-api` sends the wrong
 > (or no) `X-API-Key`, every analysis returns `401` from the Python guard.
@@ -224,6 +227,8 @@ curl.exe -X POST https://forexai-csharp-api.onrender.com/api/analysis `
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| `free not a valid plan for service type cron` | A cron service in `render.yaml` | Migrations moved to `.github/workflows/db-migrate.yml`; remove the cron block |
+| Migration workflow fails on `Jwt__Key` | Repository secret missing | Add `JWT_KEY` and `NEON_CONNECTION_STRING` under repo Settings → Actions |
 | `401` on `/analysis` | `PythonApi__ApiKey` ≠ `AI_SERVICE_API_KEY` | Copy the python-ai key into csharp-api and redeploy |
 | Build fails with `HTTP 404 ... MODEL_ARTIFACTS_BASE_URL` | No `models-v1` release assets yet | Step 1 of this guide |
 | `Webhook delivery skipped: host not in WEBHOOK_ALLOWLIST` | Wrong tunnel host or unset allowlist | Keep `.trycloudflare.com`; check the URL you pasted |
@@ -282,13 +287,24 @@ and the signal returned to the caller. Verify the rejection paths too: a
 Every order still passes the risk gates: `approved=true` from the risk agent,
 mandatory SL/TP, optional confidence floor, and the entry-drift guard.
 
-After the first deploy:
+After the first deploy, apply the database migrations from GitHub Actions
+(**Actions → Database migrations → Run workflow**), then verify:
 
 ```powershell
-# migrations: Render dashboard → forexai-db-migrate → Run Now
 curl.exe https://forexai-python-ai.onrender.com/ready
 curl.exe https://forexai-csharp-api.onrender.com/health
 curl.exe https://forexai-dashboard.onrender.com/health
 ```
 
 Create the first user account through the dashboard (or seed it via SQL).
+
+> The workflow needs two **repository secrets** (Settings → Secrets and
+> variables → Actions): `NEON_CONNECTION_STRING` and `JWT_KEY`. Set them
+> before the first run.
+>
+> Prefer to migrate from your own machine instead? Same command, no CI:
+> ```powershell
+> $env:ConnectionStrings__ForexAiDatabase = "<neon pooler connection string>"
+> $env:Jwt__Key = "<the value Render generated>"
+> dotnet run --project ForexAI/ForexAI.Api/ForexAI.Api.csproj -- --migrate
+> ```

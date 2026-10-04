@@ -160,30 +160,18 @@ services:
         value: https://forexai-csharp-api.onrender.com
 
   # -------------------------------------------------------------------------
-  # Database migrations, replacing the docker-compose "db-migrate" service.
-  # Scheduled daily and runnable on demand ("Run Now") before first use.
+  # Database migrations are NOT a Render cron job.
+  #
+  # Render cron jobs have no free tier: "plan: free" is rejected outright
+  # ("free not a valid plan for service type cron") and every cron service
+  # carries a minimum monthly charge, which would break the zero-cost
+  # deployment.
+  #
+  # They run instead from .github/workflows/db-migrate.yml, which is free,
+  # can be triggered manually from the Actions tab, and runs the identical
+  # command against Neon: `dotnet ForexAI.Api.dll --migrate`.
+  #
+  # Required repository secrets (Settings -> Secrets and variables ->
+  # Actions): NEON_CONNECTION_STRING and JWT_KEY.
   # -------------------------------------------------------------------------
-  - type: cron
-    name: forexai-db-migrate
-    runtime: docker
-    plan: free
-    dockerfilePath: ./ForexAI/Dockerfile
-    dockerContext: ./ForexAI
-    schedule: "17 3 * * *"
-    dockerCommand: dotnet ForexAI.Api.dll --migrate
-    envVars:
-      - key: ASPNETCORE_ENVIRONMENT
-        value: Production
-      - key: ConnectionStrings__ForexAiDatabase
-        sync: false
-      - key: PythonApi__BaseUrl
-        value: https://forexai-python-ai.onrender.com
-      - key: Jwt__Issuer
-        value: ForexAI
-      - key: Jwt__Audience
-        value: ForexAI.Client
-      - key: Jwt__Key
-        sync: false
-      - key: HttpsRedirection__Enabled
-        value: "false"
 

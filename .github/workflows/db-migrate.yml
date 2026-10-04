@@ -1,0 +1,66 @@
+name: Database migrations
+
+# Replaces the docker-compose "db-migrate" service and the Render cron job
+# that used to live in render.yaml. Render cron jobs have no free tier (a
+# minimum monthly charge applies to every one), and GitHub Actions runs this
+# same command for free.
+#
+# Add these repository secrets first:
+#   Settings -> Secrets and variables -> Actions -> New repository secret
+#     NEON_CONNECTION_STRING  the Neon pooler connection string
+#     JWT_KEY                 the same value Render generated for csharp-api
+#
+# Trigger it manually from the Actions tab ("Run workflow") after the first
+# deploy, or let the nightly schedule keep the schema current.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 03:17 UTC daily. Off the hour on purpose: scheduled workflows at :00
+    # are heavily contended and frequently queue for several minutes.
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never let two migration runs overlap against the same database.
+  group: db-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply EF Core migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Apply migrations
+        working-directory: ForexAI
+        env:
+          ASPNETCORE_ENVIRONMENT: Production
+          ConnectionStrings__ForexAiDatabase: ${{ secrets.NEON_CONNECTION_STRING }}
+          Jwt__Key: ${{ secrets.JWT_KEY }}
+          Jwt__Issuer: ForexAI
+          Jwt__Audience: ForexAI.Client
+          # --migrate returns before the host starts listening, so this is
+          # never dialled; it is set only to satisfy startup validation.
+          PythonApi__BaseUrl: http://127.0.0.1:8000
+        run: |
+          dotnet run \
+            --project ForexAI.Api/ForexAI.Api.csproj \
+            --configuration Release \
+            -- --migrate
+
+      - name: Report result
+        if: always()
+        run: |
+          echo "Migrations finished with exit code ${{ job.status }}."
