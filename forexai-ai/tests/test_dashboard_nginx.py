@@ -16,6 +16,7 @@ These tests parse the template and assert the invariants structurally, so a
 new location cannot silently ship without them.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -332,11 +333,31 @@ def test_nginx_runtime_variables_are_not_envsubst_targets(template):
     envsubst, producing a config nginx refuses to load.
     """
 
-    import re
-
     runtime = re.findall(r"\$\{([a-z_]+)\}", template)
-    allowed = {"CSHARP_API_URL"}
+    allowed = {"CSHARP_API_URL", "PORT"}
 
     assert set(runtime) <= allowed, (
         f"unexpected ${{...}} placeholders: {set(runtime) - allowed}"
+    )
+
+
+def test_port_placeholder_has_a_dockerfile_fallback():
+    """``${PORT}`` is only safe because the Dockerfile pins a default.
+
+    envsubst replaces an undefined variable with nothing, so without a
+    fallback the template renders ``listen ;`` and nginx refuses to start -
+    on the developer's machine, not on Render, which injects PORT itself.
+    That asymmetry is why it has to be asserted here rather than left to
+    the hosted build.
+    """
+
+    dockerfile = (
+        REPO_ROOT / "forexai-dashboard" / "Dockerfile"
+    ).read_text(encoding="utf-8")
+
+    assert re.search(r"^ENV\s+PORT=\S+", dockerfile, re.MULTILINE), (
+        "default.conf.template uses ${PORT} but forexai-dashboard/Dockerfile "
+        "sets no ENV PORT. Render injects PORT, so the hosted build would "
+        "pass, while `docker compose up` rendered 'listen ;' and nginx "
+        "failed to start."
     )

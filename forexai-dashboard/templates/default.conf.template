@@ -4,7 +4,12 @@
 # pass through untouched. CSHARP_API_URL defaults to the compose
 # service name locally and is overridden on Render.
 server {
-    listen 80;
+    # Render injects PORT (10000 on its free tier) and injects nothing
+    # locally, so the Dockerfile pins ENV PORT=80 as the fallback. Without
+    # that fallback envsubst renders an empty value and nginx refuses to
+    # load the config - which is why the Dockerfile sets it explicitly
+    # rather than relying on the variable simply being present.
+    listen ${PORT};
 
     server_name _;
 
