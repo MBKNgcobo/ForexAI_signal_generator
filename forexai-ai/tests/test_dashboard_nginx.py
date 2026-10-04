@@ -277,6 +277,54 @@ def test_sni_locations_also_pin_the_certificate_name(template):
     )
 
 
+def test_proxied_locations_send_the_upstream_host(template):
+    """The regression: ``Host $host`` made every /api/ call a 508.
+
+    ``$host`` is the *dashboard's* hostname. Render's edge routes by Host, so
+    forwarding ``forexai-dashboard.onrender.com`` to the API service sends
+    the request straight back to the dashboard, which proxies it again -
+    an infinite ping-pong that Cloudflare's loop detector finally killed
+    with ``508 Loop Detected``. Every ``/api/`` request failed, so login was
+    impossible.
+
+    The upstream's own name is ``$proxy_host``, which nginx derives from
+    ``proxy_pass``. The browser-facing scheme and address still reach the API
+    through ``X-Forwarded-Proto`` and ``X-Forwarded-For``.
+
+    Same class as the missing-SNI bug: both are proxied paths that cross
+    Render's edge without accounting for how it routes.
+    """
+
+    offenders = []
+
+    for name, directives in _locations(template):
+        active = [
+            directive
+            for directive in directives
+            if not _is_comment(directive)
+        ]
+
+        if not any(
+            directive.startswith("proxy_pass ")
+            for directive in active
+        ):
+            continue
+
+        for directive in active:
+            if directive.startswith("proxy_set_header Host ") and (
+                directive != "proxy_set_header Host $proxy_host;"
+            ):
+                offenders.append(f"{name} -> {directive}")
+
+    assert not offenders, (
+        "a proxied location must forward the upstream's Host "
+        "(proxy_set_header Host $proxy_host;), not the dashboard's own: "
+        f"{offenders}. Render's edge routes by Host, so sending $host to "
+        "another service bounces the request back and loops until it is "
+        "killed as 508."
+    )
+
+
 def test_nginx_runtime_variables_are_not_envsubst_targets(template):
     """The entrypoint substitutes *environment* variables only.
 

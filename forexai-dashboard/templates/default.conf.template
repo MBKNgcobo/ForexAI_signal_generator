@@ -25,7 +25,20 @@ server {
         proxy_ssl_server_name on;
         proxy_ssl_name $proxy_host;
 
-        proxy_set_header Host $host;
+        # Host MUST be the upstream's name, never $host.
+        #
+        # $host is the *dashboard's* hostname. Render's edge routes by Host,
+        # so sending forexai-dashboard.onrender.com to the API service sends
+        # the request straight back to the dashboard, which proxies it again:
+        # an infinite ping-pong. Cloudflare's loop detector eventually killed
+        # it with "508 Loop Detected" and every /api/ request failed. Neither
+        # Render nor nginx has a hop limit, so the loop would otherwise run
+        # indefinitely.
+        #
+        # $proxy_host is the host from proxy_pass, i.e. the API's own name.
+        # The protocol still reports the original browser scheme/address via
+        # X-Forwarded-Proto below, which is what the API should trust.
+        proxy_set_header Host $proxy_host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
