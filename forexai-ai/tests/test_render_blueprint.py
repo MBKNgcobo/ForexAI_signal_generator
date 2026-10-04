@@ -203,6 +203,41 @@ def test_no_service_uses_a_plan_render_rejects(services):
     )
 
 
+def test_dockerfile_path_is_relative_to_the_repository_root(services):
+    """Render resolves ``dockerfilePath`` from the repo root, not the context.
+
+    Render's docs: "If your Dockerfile is not in your repo's root directory,
+    specify its path (e.g. my-subdirectory/Dockerfile) in the Dockerfile Path
+    field". A path written relative to ``dockerContext`` instead would point
+    at forexai-ai/forexai-ai/Dockerfile and fail the build.
+    """
+
+    for name, service in services.items():
+        declared = service["dockerfilePath"].lstrip("./")
+        context = service["dockerContext"].lstrip("./")
+
+        assert declared.startswith(f"{context}/"), (
+            f"{name}: dockerfilePath {declared!r} is not under its "
+            f"dockerContext {context!r}"
+        )
+
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(EXPECTED_SERVICES),
+)
+def test_every_service_auto_deploys(services, name):
+    """A service that does not rebuild on push serves a stale image.
+
+    That is how a fix can land in the repository while the running service
+    keeps failing on a bug that was fixed several commits earlier.
+    """
+
+    assert services[name].get("autoDeploy") is True, (
+        f"{name}: autoDeploy must be true so pushes trigger a rebuild"
+    )
+
+
 def test_migrations_are_not_a_render_cron_job(services):
     """Render cron jobs carry a minimum monthly charge; keep them out."""
 

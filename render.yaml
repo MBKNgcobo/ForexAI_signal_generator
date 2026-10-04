@@ -30,6 +30,9 @@ services:
     name: forexai-python-ai
     runtime: docker
     plan: free
+    # Explicit so a pushed fix (a template change, a pinned model manifest)
+    # always rebuilds instead of leaving a stale image running.
+    autoDeploy: true
     dockerfilePath: ./forexai-ai/Dockerfile
     dockerContext: ./forexai-ai
     healthCheckPath: /ready
@@ -105,6 +108,7 @@ services:
     name: forexai-csharp-api
     runtime: docker
     plan: free
+    autoDeploy: true
     dockerfilePath: ./ForexAI/Dockerfile
     dockerContext: ./ForexAI
     healthCheckPath: /health
@@ -152,6 +156,7 @@ services:
     name: forexai-dashboard
     runtime: docker
     plan: free
+    autoDeploy: true
     dockerfilePath: ./forexai-dashboard/Dockerfile
     dockerContext: ./forexai-dashboard
     healthCheckPath: /health

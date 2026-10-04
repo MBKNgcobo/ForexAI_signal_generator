@@ -135,8 +135,22 @@ Render → **New → Blueprint** → select this repository → **Apply**.
 | `forexai-csharp-api` | web | free | `/health` |
 | `forexai-dashboard` | web | free | `/health` |
 
-Render prompts for every value marked `sync: false`. Fill them in as:
+> **Creating a service by hand instead of using the blueprint?** Set these
+> three fields per service, or the build fails with
+> `open Dockerfile: no such file or directory` — this repository has **no
+> root `Dockerfile`**, each one lives in a subdirectory:
+>
+> | Service | Language | Root Directory | Dockerfile Path |
+> | --- | --- | --- | --- |
+> | `forexai-python-ai` | Docker | `forexai-ai` | `forexai-ai/Dockerfile` |
+> | `forexai-csharp-api` | Docker | `ForexAI` | `ForexAI/Dockerfile` |
+> | `forexai-dashboard` | Docker | `forexai-dashboard` | `forexai-dashboard/Dockerfile` |
+>
+> **Dockerfile Path is relative to the repository root**, not to the Root
+> Directory (Render documents it as `my-subdirectory/Dockerfile`), while Root
+> Directory becomes the build context.
 
+Render prompts for every value marked `sync: false`. Fill them in as:
 **python-ai**
 - `TWELVE_DATA_API_KEY`, `OPENROUTER_API_KEY`
 - `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS`
@@ -227,6 +241,8 @@ curl.exe -X POST https://forexai-csharp-api.onrender.com/api/analysis `
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| `failed to read dockerfile: open Dockerfile: no such file or directory` | The repo root has no `Dockerfile`; each service's lives in a subdirectory, so a service created with defaults builds from the root and fails immediately | Set **Root Directory** + **Dockerfile Path** per service (see below), or deploy via the blueprint, which sets both |
+| Build log shows an old commit (e.g. `Checking out commit a4a3731`) | The service predates newer commits, or auto-deploy is off | **Manual Deploy → Deploy latest commit**, and confirm `autoDeploy: true` |
 | `SSL_do_handshake() failed ... SSL alert number 40` / `no live upstreams` in the dashboard nginx log | A proxied `location` is missing `proxy_ssl_server_name on;`, so Render's edge rejects the handshake | Add the directive to every location with an `https://` upstream (`/api/` and `/health`); `test_dashboard_nginx.py` enforces this |
 | `AmbiguousMatchException: The request matched multiple endpoints` on `GET /health` | Two endpoints claim the same route (e.g. a `MapGet("/health")` alongside `HealthController`) | Remove the duplicate; `/health` is served by `HealthController`. `HealthEndpointTests` fails if this regresses |
 | `Hosting failed to start` / `TaskCanceledException at KestrelServerImpl.BindAsync` | Usually a symptom: the health endpoint 500s, so the deploy restarts in a loop until it times out | Fix whatever `/health` is returning — `curl https://forexai-csharp-api.onrender.com/health` |
