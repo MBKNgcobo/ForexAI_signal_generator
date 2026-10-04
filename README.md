@@ -31,22 +31,16 @@ Every layer is deployable on its own and the whole stack boots with one command.
 ## Architecture
 
 ```mermaid
-flowchart LR
-    B[Browser<br/>React dashboard<br/>:80] -->|REST + JWT| API[.NET 9 API<br/>Clean Architecture :8080]
-
-    subgraph DB[(PostgreSQL 17 :5434)]
+flowchart TD
+    subgraph DB ["Database Layer"]
+        pg_db[(PostgreSQL 17 :5432)]
     end
 
-    API -->|persist signals| DB
-    API -->|POST /analysis| AI[Python AI service<br/>FastAPI + LangGraph :8001]
+    subgraph API ["Backend API"]
+        dotnet[.NET 9 Clean Architecture]
+    end
 
-    AI -->|candles| TD[(Twelve Data)]
-    AI -->|LLM| OR[(OpenRouter / OpenAI)]
-    AI -->|fundamentals| WB[(World Bank)]
-    AI -.->|evidence| DB
-
-    AI -->|AiAnalysisResponse| API
-    API -->|signal + reasoning| B
+    dotnet -->|EF Core| pg_db
 ```
 
 | Component | Path | Stack | Role |
