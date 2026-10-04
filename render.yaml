@@ -64,6 +64,7 @@ services:
       - key: RAG_DB_USER
         sync: false
       - key: RAG_DB_PASSWORD
+        sync: false
 
       # --- Public API guard -------------------------------------------------
       # This service URL is public. Without this key anybody could POST
@@ -133,6 +134,12 @@ services:
       - key: PythonApi__ApiKey
         sync: false
 
+      # --- Browser access (the dashboard origin) ---
+      # The dashboard proxies /api same-origin, so this is defence in depth:
+      # it keeps direct browser calls to the API restricted to that origin.
+      - key: Cors__AllowedOrigins__0
+        sync: false
+
 
   # -------------------------------------------------------------------------
   # Dashboard (static SPA + nginx reverse proxy).
@@ -180,8 +187,3 @@ services:
       - key: HttpsRedirection__Enabled
         value: "false"
 
-      # --- Browser access (the dashboard origin) ---
-      - key: Cors__AllowedOrigins__0
-        sync: false
-
-        sync: false

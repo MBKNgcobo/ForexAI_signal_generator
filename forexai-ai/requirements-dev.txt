@@ -8,3 +8,6 @@
 # ---------------------------------------------------------------------------
 ruff==0.16.10
 pytest-cov==7.1.0
+# Used by tests/test_render_blueprint.py to validate the Render blueprint's
+# structure before it is ever pushed to the deploy host.
+PyYAML==6.0.3
