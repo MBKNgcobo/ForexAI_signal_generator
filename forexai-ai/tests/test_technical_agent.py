@@ -3,6 +3,7 @@ import pytest
 from app.agents.technical_agent import (
     TechnicalAgent,
 )
+from app.services.confidence_calibration import calibrate_confidence
 
 from tests.fakes.fake_llm import (
     FakeLLMProvider,
@@ -81,9 +82,14 @@ async def test_technical_agent_uses_llm():
         "direction"
     ] == "BUY"
 
+    # LLM raw 0.85 is calibrated on the technical table; raw kept for audit.
+    assert technical[
+        "raw_confidence"
+    ] == 0.85
+
     assert technical[
         "confidence"
-    ] == 0.85
+    ] == calibrate_confidence(0.85, "technical")
 
     assert technical[
         "summary"

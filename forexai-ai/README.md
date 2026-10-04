@@ -9,7 +9,7 @@
 ![CI](https://github.com/MBKNgcobo/ForexAI_signal_generator/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.14-blue?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-78%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-150%20passing-brightgreen)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)
 
 [Features](#features) · [Architecture](#architecture) · [API](#api) · [Quick start](#quick-start) · [Tests](#tests)
@@ -39,7 +39,7 @@ credentials, validates at the HTTP boundary, distinguishes *client error* from
 - **Validation at the boundary** — malformed symbols, timeframes and limits return `422` *before* any paid LLM or provider work happens (previously they surfaced as `500`s mid-flight).
 - **Typed error mapping** — `400` unsupported pair · `401` bad API key · `422` bad input · `502` unusable LLM output · `503` degraded dependency.
 - **Provider-agnostic LLM layer** — OpenRouter (with fallback models), OpenAI or any HTTP endpoint, behind one factory with a typed retry/error taxonomy.
-- **Hermetic test suite** — 78 tests, zero network access: market data, the LLM and the database are all faked.
+- **Hermetic test suite** — 150 tests, zero network access: market data, the LLM and the database are all faked.
 - **Secure defaults** — optional `X-API-Key` guard, conditional CORS, non-root Docker image, health-check, secrets excluded from git *and* image layers.
 
 <a id="architecture"></a>
@@ -85,9 +85,13 @@ flowchart LR
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/health` | Liveness probe, always public. |
+| `GET` | `/health` | Liveness probe, always public; reports service name and version. |
+| `GET` | `/ready` | Readiness probe: `200` when required configuration is present, else `503`. |
+| `GET` | `/version` | Build metadata (`service`, `version`) for dashboards and deploy checks. |
+| `GET` | `/metrics` | Prometheus scrape endpoint (HTTP, graph-node, cache and LLM metrics). |
 | `GET` | `/market-data/{symbol}` | Six-letter symbol (`EURUSD`), `timeframe`, `limit` (1–500). |
-| `POST` | `/analysis` | Full pipeline: `{ forex_pair_id, symbol, timeframe }`. |
+| `POST` | `/analysis` | Full pipeline: `{ forex_pair_id, symbol, timeframe }`. Calibrated confidences + `explanation` block. |
+| `POST` | `/analysis/batch` | Up to `ANALYSIS_BATCH_LIMIT` (default 10) pairs in one call; per-item `results`/`errors`; optional `webhook_url` push. |
 
 Valid timeframes: `OneMinute` · `FiveMinutes` · `FifteenMinutes` · `OneHour` · `FourHours` · `OneDay`
 
@@ -179,18 +183,31 @@ Never commit `.env` — it is ignored by `.gitignore` and `.dockerignore`.
 ## Tests
 
 ```powershell
-python -m pytest -q        # 78 passed
+python -m pytest -q                 # 150 passed
+python -m pytest -q --cov=app       # with a coverage report
+ruff check app tests                # lint gate
+
+**Product-value endpoints (P1–P4):** per-source confidence calibration
+(`models/calibration.json`, raw values kept as `raw_confidence`),
+an auditable `explanation` block (`drivers`/`dissent`, quant-veto flag),
+`POST /analysis/batch` for watchlists (per-item errors, `ANALYSIS_BATCH_LIMIT`),
+and best-effort `webhook_url` push guarded by `WEBHOOK_ALLOWLIST` (deny-all by
+default; localhost allowed for local receivers).
 ```
 
 The suite is **hermetic by construction**: candle fetches, LLM calls and the
 database are all injected or monkeypatched, so CI needs no credentials and
 makes no network calls. Coverage spans API validation and the error contract,
 the risk and decision agents, response mapping, timestamp normalisation across
-all timeframes, and the full graph round-trip.
+all timeframes, the quant pipeline (feature engineering, target labelling, the
+ensemble and the sklearn inference contract), the market-data cache TTL, and
+the full graph round-trip.
 
 Configuration lives in `pyproject.toml` (`testpaths`, `asyncio_mode = "auto"`,
-`pythonpath = ["."]`), and `.github/workflows/ci.yml` runs the suite on every
-push and pull request.
+`pythonpath = ["."]`), lint rules live under `[tool.ruff]`, and
+`.github/workflows/ci.yml` runs `ruff` plus the suite on every push and pull
+request. Development-only tooling (`ruff`, `pytest-cov`) is pinned in
+`requirements-dev.txt` so the runtime image never carries it.
 
 ## Docker
 
@@ -224,7 +241,10 @@ app/
   schemas/       pydantic request/response contracts
   services/      Twelve Data provider, TTL cache, indicators, response mapper
 scripts/         manual data & ensemble checks (not collected by pytest)
-tests/           78-test hermetic suite + fakes
+tests/           150-test hermetic suite + fakes
+  observability/ request IDs, JSON log formatter, Prometheus metrics
+.github/         CI workflow (ruff + pytest on every push / PR)
+requirements-dev.txt  dev & CI tooling (ruff, pytest-cov)
 ```
 
 ## Design decisions
@@ -238,10 +258,12 @@ tests/           78-test hermetic suite + fakes
 | Cached config with explicit `cache_clear()` hooks in tests | Fast hot path without hidden global mutable state. |
 | Canonical `FEATURE_COLUMNS` / `CLASS_NAMES` modules | Training and inference previously drifted across four duplicated copies. |
 | Non-root image, no `.env` in image layers | Secrets belong in runtime env vars, never in image history. |
+| Dev tooling isolated in `requirements-dev.txt` | The shipped image installs only `requirements.txt`, so `ruff`/`pytest-cov` never reach production. |
+| Separate `/health` (liveness) and `/ready` (readiness) | Fail-soft startup keeps the process alive without credentials, so orchestrators need a way to hold traffic until config is present. |
 
 ## Roadmap
 
 - [ ] Pluggable candle providers behind the existing `MarketDataProvider` interface (Twelve Data is the only implementation today).
-- [ ] Prometheus metrics and structured JSON logs.
+- [x] Prometheus metrics (`/metrics`), structured JSON logs (`LOG_FORMAT=json`) and request IDs (`X-Request-ID`).
 - [ ] Contract tests generated from the OpenAPI schema to catch drift against the C# client.
 - [ ] Per-symbol rate limiting and cache warm-up for the provider layer.

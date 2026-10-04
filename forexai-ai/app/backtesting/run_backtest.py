@@ -23,6 +23,11 @@ def main():
         stop_loss_atr=1.0,
         take_profit_atr=1.5,
         max_holding_period=12,
+        # Typical EURUSD round-trip frictions, in price units. Zero keeps
+        # the frictionless baseline; set realistic values for reporting.
+        spread=0.00015,
+        commission=0.0,
+        slippage=0.00005,
     )
 
     threshold = 0.60

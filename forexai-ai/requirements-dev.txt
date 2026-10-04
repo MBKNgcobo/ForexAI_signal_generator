@@ -1,0 +1,10 @@
+# ---------------------------------------------------------------------------
+# Development and CI tooling. Not required to run the service.
+#
+# Install alongside the runtime requirements:
+#     pip install -r requirements.txt -r requirements-dev.txt
+#
+# pytest and pytest-asyncio are pinned in requirements.txt already.
+# ---------------------------------------------------------------------------
+ruff==0.16.10
+pytest-cov==7.1.0

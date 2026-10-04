@@ -18,5 +18,17 @@ public sealed record AnalyzeMarketRequest(
     [property: JsonPropertyName("timeframe")]
     [property: JsonConverter(
         typeof(JsonStringEnumConverter))]
-    Timeframe Timeframe
+    Timeframe Timeframe,
+
+    /// <summary>
+    /// Optional HTTP(S) push target (P4). When set, the Python service
+    /// POSTs the finished analysis to this URL, which is how a hosted
+    /// signal generator reaches a local MT5 execution bridge without the
+    /// dashboard polling. Delivery is best-effort and SSRF-guarded by the
+    /// Python service's WEBHOOK_ALLOWLIST.
+    /// </summary>
+    [property: JsonPropertyName("webhook_url")]
+    [property: JsonIgnore(
+        Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? WebhookUrl = null
 );

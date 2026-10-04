@@ -6,6 +6,7 @@ from app.fundamentals.service import (
 from app.llm.llm_provider import (
     LLMProvider,
 )
+from app.services.confidence_calibration import calibrate_confidence
 
 
 class FundamentalAgent:
@@ -50,12 +51,20 @@ class FundamentalAgent:
             llm_response
         )
 
+        # Same calibration policy as the technical agent: calibrated value
+        # on the contract field, raw value kept for audit.
+        raw_confidence = analysis["confidence"]
+
         return {
             "fundamental_analysis": {
                 "symbol": symbol,
                 "timeframe": timeframe,
                 "direction": analysis["direction"],
-                "confidence": analysis["confidence"],
+                "confidence": calibrate_confidence(
+                    raw_confidence,
+                    "fundamental",
+                ),
+                "raw_confidence": raw_confidence,
                 "summary": analysis["summary"],
                 "reasoning": analysis["reasoning"],
                 "evidence": evidence,

@@ -152,3 +152,56 @@ def test_mapper_allows_optional_trade_parameters_to_be_absent():
     assert response.risk_assessment.stop_loss is None
     assert response.risk_assessment.take_profit is None
     assert response.risk_assessment.risk_reward is None
+
+
+def test_mapper_builds_explanation_for_unanimous_signal():
+
+    response = map_graph_result_to_response(_complete_result())
+
+    assert response.explanation is not None
+    assert response.explanation.agreement == 1.0
+    assert response.explanation.quant_vetoed is False
+    assert len(response.explanation.drivers) == 2
+    assert response.explanation.dissent == []
+
+
+def test_mapper_builds_explanation_for_split_signal():
+
+    result = _complete_result()
+    result["fundamental_analysis"]["direction"] = "SELL"
+    result["final_decision"]["direction"] = "BUY"
+    result["risk_assessment"]["agreement"] = 0.67
+
+    response = map_graph_result_to_response(result)
+
+    assert response.explanation is not None
+    assert response.explanation.agreement == 0.67
+    assert any("fundamental says SELL" in item for item in response.explanation.dissent)
+
+
+def test_mapper_flags_quant_veto_in_explanation():
+
+    result = _complete_result()
+    result["quant_prediction"]["direction"] = "SELL"
+    result["quant_prediction"]["probability"] = 0.75
+    result["risk_assessment"]["quant_probability"] = 0.75
+    result["final_decision"]["direction"] = "NO_TRADE"
+
+    response = map_graph_result_to_response(result)
+
+    assert response.explanation is not None
+    assert response.explanation.quant_vetoed is True
+
+
+def test_mapper_preserves_raw_confidences_when_present():
+
+    result = _complete_result()
+    result["technical_analysis"]["raw_confidence"] = 0.85
+    result["quant_prediction"]["raw_confidence"] = 0.9
+
+    response = map_graph_result_to_response(result)
+
+    assert response.technical_analysis.raw_confidence == 0.85
+    assert response.quant_prediction.raw_confidence == 0.9
+    # Absent raw values stay optional, never break older graph states.
+    assert response.fundamental_analysis.raw_confidence is None

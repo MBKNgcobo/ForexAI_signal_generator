@@ -18,6 +18,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\ForexAI.Domain\ForexAI.Domain.csproj" />
+		<ProjectReference Include="..\ForexAI.Application\ForexAI.Application.csproj" />
 		<ProjectReference Include="..\ForexAI.Infrastructure\ForexAI.Infrastructure.csproj" />
 	</ItemGroup>
 

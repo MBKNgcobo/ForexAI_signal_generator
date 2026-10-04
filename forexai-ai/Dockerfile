@@ -19,6 +19,20 @@ ENV PIP_NO_CACHE_DIR=1 \
 COPY app ./app
 COPY models ./models
 
+# The artifact fetcher is the one build-time script the image needs; every
+# other script (dev checks, the local MT5 bridge) stays out of the context.
+COPY scripts/fetch_model_artifacts.py ./scripts/fetch_model_artifacts.py
+
+# The ensemble binaries are git-ignored, so a hosted build (which clones the
+# repository) sees an empty models/ directory and would ship a signal
+# generator with no quant module. Fetch the exact artifacts listed in
+# models/ARTIFACTS.sha256, verifying each checksum. On a local build they are
+# already present and this is a no-op.
+ARG MODEL_ARTIFACTS_BASE_URL=https://github.com/MBKNgcobo/ForexAI_signal_generator/releases/download/models-v1
+ENV MODEL_ARTIFACTS_BASE_URL=${MODEL_ARTIFACTS_BASE_URL}
+
+RUN python scripts/fetch_model_artifacts.py
+
 # Run as an unprivileged user; the base image's root account is not needed
 # at runtime.
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin appuser \

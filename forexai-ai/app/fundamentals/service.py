@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import date
 
@@ -24,6 +25,9 @@ from app.fundamentals.normalization import (
 from app.fundamentals.rag_store import (
     FundamentalRAGStore,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 WORLD_BANK_INDICATORS = {
@@ -147,9 +151,12 @@ class FundamentalRAGService:
             except Exception as exc:
                 refresh_succeeded = False
 
-                print(
-                    f"World Bank indicator refresh failed: "
-                    f"{country} / {indicator_code}: {exc}"
+                logger.warning(
+                    "World Bank indicator refresh failed: "
+                    "%s / %s: %s",
+                    country,
+                    indicator_code,
+                    exc,
                 )
 
         if refresh_succeeded:
@@ -265,9 +272,12 @@ class FundamentalRAGService:
             except Exception as exc:
                 refresh_succeeded = False
 
-                print(
-                    f"SOTW series refresh failed: "
-                    f"{country} / {series_id}: {exc}"
+                logger.warning(
+                    "SOTW series refresh failed: "
+                    "%s / %s: %s",
+                    country,
+                    series_id,
+                    exc,
                 )
 
         if refresh_succeeded:
@@ -311,9 +321,9 @@ class FundamentalRAGService:
             )
 
         except Exception as exc:
-            print(
-                "Business Quant refresh failed: "
-                f"{exc}"
+            logger.warning(
+                "Business Quant refresh failed: %s",
+                exc,
             )
 
     async def retrieve(
@@ -345,9 +355,10 @@ class FundamentalRAGService:
                 )
 
             except Exception as exc:
-                print(
-                    f"World Bank refresh failed for "
-                    f"{currency}: {exc}"
+                logger.warning(
+                    "World Bank refresh failed for %s: %s",
+                    currency,
+                    exc,
                 )
 
         # --------------------------------------------------
@@ -364,9 +375,10 @@ class FundamentalRAGService:
                 )
 
             except Exception as exc:
-                print(
-                    f"SOTW refresh failed for "
-                    f"{currency}: {exc}"
+                logger.warning(
+                    "SOTW refresh failed for %s: %s",
+                    currency,
+                    exc,
                 )
 
         # --------------------------------------------------
@@ -381,9 +393,9 @@ class FundamentalRAGService:
                 await self._refresh_business_quant()
 
             except Exception as exc:
-                print(
-                    "Business Quant refresh failed: "
-                    f"{exc}"
+                logger.warning(
+                    "Business Quant refresh failed: %s",
+                    exc,
                 )
 
         # --------------------------------------------------

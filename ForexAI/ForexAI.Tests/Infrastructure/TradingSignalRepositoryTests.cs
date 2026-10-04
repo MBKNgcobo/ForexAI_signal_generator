@@ -17,13 +17,21 @@ public class TradingSignalRepositoryTests
     // No credentials are stored in source control. The repository tests
     // need a running PostgreSQL; point TEST_CONNECTION_STRING at it, e.g.
     //   Host=localhost;Port=5434;Database=forexai_test;Username=postgres;Password=<password>
-    private static readonly string ConnectionString =
-        Environment.GetEnvironmentVariable("TEST_CONNECTION_STRING")
-        ?? "Host=localhost;Port=5434;Database=forexai_test;Username=postgres;Password=";
+    private static readonly string? ConnectionString =
+        Environment.GetEnvironmentVariable("TEST_CONNECTION_STRING");
 
     [Fact]
     public async Task AddAndRetrieveSignal_ShouldWork()
     {
+        // This is an integration test: it needs a real PostgreSQL. Without an
+        // explicit connection string there is nothing to assert against, so
+        // return rather than fail - otherwise a developer with no database
+        // (or a hosted CI) sees a red suite that says nothing about the code.
+        if (string.IsNullOrWhiteSpace(ConnectionString))
+        {
+            return;
+        }
+
         // Arrange
         var options = new DbContextOptionsBuilder<ForexAiDbContext>()
             .UseNpgsql(ConnectionString)
@@ -36,8 +44,14 @@ public class TradingSignalRepositoryTests
 
         var repository = new TradingSignalRepository(context);
 
+        // TradingSignal takes a user id AND a forex pair id; the pair is what
+        // links a generated signal back to the instrument it was made for.
+        var userId = Guid.NewGuid();
+        var forexPairId = Guid.NewGuid();
+
         var signal = new TradingSignal(
-            Guid.NewGuid(),
+            userId,
+            forexPairId,
             SignalDirection.Buy,
             0.80m,
             1.1650m,
@@ -62,5 +76,8 @@ public class TradingSignalRepositoryTests
         Assert.Equal(
             0.80m,
             result.Confidence);
+        Assert.Equal(
+            forexPairId,
+            result.ForexPairId);
     }
 }

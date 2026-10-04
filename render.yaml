@@ -1,0 +1,187 @@
+# ---------------------------------------------------------------------------
+# Render blueprint - the whole ForexAI stack on Render's free tier.
+#
+# Deploy: Render Dashboard -> New -> Blueprint -> select this repository.
+# Every secret is declared "sync: false", so Render PROMPTS for it at deploy
+# time and nothing sensitive is ever committed here.
+#
+# All three services build from this one monorepo, each with its own build
+# context so the per-project .dockerignore (secrets, tests, data) applies.
+#
+# Free-tier realities to expect:
+#   * web services spin down after ~15 min idle and cold-start in ~50 s
+#     (UptimeRobot monitors keep them warm - see DEPLOYMENT.md);
+#   * a free Neon database auto-suspends after ~5 min idle, so the first
+#     request after a quiet period is slower;
+#   * Render may restart or rebuild free services at any time.
+# None of this affects correctness, only latency.
+# ---------------------------------------------------------------------------
+
+services:
+
+  # -------------------------------------------------------------------------
+  # Signal generator (LangGraph analysis pipeline).
+  #
+  # The container has no MetaTrader5 package - that package is Windows-only -
+  # so the hosted generator reads market data through Twelve Data. MT5 itself
+  # stays on your PC, reached later through the webhook bridge.
+  # -------------------------------------------------------------------------
+  - type: web
+    name: forexai-python-ai
+    runtime: docker
+    plan: free
+    dockerfilePath: ./forexai-ai/Dockerfile
+    dockerContext: ./forexai-ai
+    healthCheckPath: /ready
+    envVars:
+      # --- Market data (Twelve Data, free tier: 8 requests/minute) ---
+      - key: MARKET_DATA_PROVIDER
+        value: twelve
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+
+      # --- LLM provider (OpenRouter) ---
+      - key: LLM_PROVIDER
+        value: openrouter
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        sync: false
+      - key: OPENROUTER_FALLBACK_MODELS
+        sync: false
+      - key: OPENROUTER_SITE_NAME
+        value: ForexAI
+      - key: OPENROUTER_SITE_URL
+        sync: false
+
+      # --- RAG / fundamentals store: use the Neon *pooler* host ---
+      - key: RAG_DB_HOST
+        sync: false
+      - key: RAG_DB_PORT
+        value: "5432"
+      - key: RAG_DB_NAME
+        value: forexai
+      - key: RAG_DB_USER
+        sync: false
+      - key: RAG_DB_PASSWORD
+
+      # --- Public API guard -------------------------------------------------
+      # This service URL is public. Without this key anybody could POST
+      # /analysis and burn your LLM credit. The C# gateway sends the same
+      # value as PythonApi__ApiKey.
+      - key: AI_SERVICE_API_KEY
+        generateValue: true
+
+      # --- Webhook push to the local MT5 bridge ----------------------------
+      # A Cloudflare quick tunnel is a NEW random hostname on every restart,
+      # so an exact host cannot be listed: the wildcard entry covers every
+      # *.trycloudflare.com. Narrow it to your own tunnel host if you ever
+      # move to a named tunnel with a stable domain.
+      - key: WEBHOOK_ALLOWLIST
+        value: .trycloudflare.com
+      # A tunnelled receiver (a laptop) is slower than a local one.
+      - key: WEBHOOK_TIMEOUT_SECONDS
+        value: "8"
+
+      # --- Browser access (the dashboard origin) ---
+      - key: CORS_ALLOWED_ORIGIN
+        sync: false
+
+      # --- Optional fundamentals providers ---
+      - key: SOTW_API_KEY
+        sync: false
+      - key: BUSINESS_QUANT_API_KEY
+        sync: false
+
+      - key: LOG_LEVEL
+        value: INFO
+
+  # -------------------------------------------------------------------------
+  # Public API: authentication, signal history, audit trail.
+  # Also the gateway that forwards analysis requests to the Python service.
+  # -------------------------------------------------------------------------
+  - type: web
+    name: forexai-csharp-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./ForexAI/Dockerfile
+    dockerContext: ./ForexAI
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      # Render terminates TLS at its edge and forwards plain HTTP, so the
+      # in-container HTTPS redirect must stay off or every request 307s.
+      - key: HttpsRedirection__Enabled
+        value: "false"
+
+      # --- Neon connection string (Ssl Mode=Require; Include Error Detail=false) ---
+      - key: ConnectionStrings__ForexAiDatabase
+        sync: false
+
+      - key: Jwt__Issuer
+        value: ForexAI
+      - key: Jwt__Audience
+        value: ForexAI.Client
+      - key: Jwt__Key
+        generateValue: true
+
+      # --- Python service ---
+      - key: PythonApi__BaseUrl
+        value: https://forexai-python-ai.onrender.com
+      # Must equal the python-ai AI_SERVICE_API_KEY above.
+      - key: PythonApi__ApiKey
+        sync: false
+
+
+  # -------------------------------------------------------------------------
+  # Dashboard (static SPA + nginx reverse proxy).
+  #
+  # CSHARP_API_URL is substituted into templates/default.conf.template at
+  # container start, so the browser only ever talks to one origin and no CORS
+  # negotiation is needed for /api.
+  # -------------------------------------------------------------------------
+  - type: web
+    name: forexai-dashboard
+    runtime: docker
+    plan: free
+    dockerfilePath: ./forexai-dashboard/Dockerfile
+    dockerContext: ./forexai-dashboard
+    healthCheckPath: /health
+    envVars:
+      - key: CSHARP_API_URL
+        value: https://forexai-csharp-api.onrender.com
+
+  # -------------------------------------------------------------------------
+  # Database migrations, replacing the docker-compose "db-migrate" service.
+  # Scheduled daily and runnable on demand ("Run Now") before first use.
+  # -------------------------------------------------------------------------
+  - type: cron
+    name: forexai-db-migrate
+    runtime: docker
+    plan: free
+    dockerfilePath: ./ForexAI/Dockerfile
+    dockerContext: ./ForexAI
+    schedule: "17 3 * * *"
+    dockerCommand: dotnet ForexAI.Api.dll --migrate
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__ForexAiDatabase
+        sync: false
+      - key: PythonApi__BaseUrl
+        value: https://forexai-python-ai.onrender.com
+      - key: Jwt__Issuer
+        value: ForexAI
+      - key: Jwt__Audience
+        value: ForexAI.Client
+      - key: Jwt__Key
+        sync: false
+      - key: HttpsRedirection__Enabled
+        value: "false"
+
+      # --- Browser access (the dashboard origin) ---
+      - key: Cors__AllowedOrigins__0
+        sync: false
+
+        sync: false

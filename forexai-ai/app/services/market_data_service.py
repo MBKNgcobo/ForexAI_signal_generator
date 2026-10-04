@@ -1,9 +1,15 @@
+import logging
+
+from app.observability.metrics import record_cache_lookup
 from app.schemas.market import MarketData
 
 from app.services.market_data_cache import MarketDataCache
 from app.services.market_data_provider import (
     MarketDataProvider,
 )
+
+logger = logging.getLogger(__name__)
+
 
 class MarketDataService:
 
@@ -31,15 +37,19 @@ class MarketDataService:
         cached_data = self.cache.get(cache_key)
 
         if cached_data is not None:
-            print(
-                f"Market data cache HIT: {cache_key}"
+            logger.debug(
+                "Market data cache HIT: %s",
+                cache_key,
             )
+            record_cache_lookup(hit=True)
 
             return cached_data
 
-        print(
-            f"Market data cache MISS: {cache_key}"
+        logger.debug(
+            "Market data cache MISS: %s",
+            cache_key,
         )
+        record_cache_lookup(hit=False)
 
         data = await self.provider.get_market_data(
             symbol=symbol,

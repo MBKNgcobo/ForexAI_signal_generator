@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 def timed_node(name: str, node: Callable):
     @wraps(node)
     async def wrapper(state):
+        from app.observability.metrics import GRAPH_NODE_DURATION_SECONDS
+
         started_at = perf_counter()
 
         try:
@@ -41,7 +43,8 @@ def timed_node(name: str, node: Callable):
                 "TIMING | Graph node %s | %.3f seconds",
                 name,
                 elapsed,
-    )
+            )
+            GRAPH_NODE_DURATION_SECONDS.labels(node=name).observe(elapsed)
 
     return wrapper
 

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+from functools import lru_cache
 from typing import Any
 
 import pandas as pd
+
+from app.config import ensemble_models, ensemble_weights
 
 from app.models.ensemble_quant_model import (
     EnsembleQuantModel,
@@ -17,56 +21,73 @@ from app.models.sklearn_quant_model import (
     SklearnQuantModel,
 )
 
-from app.models.targets import CLASS_NAMES
+from app.services.confidence_calibration import calibrate_confidence
 
 
-
-# ------------------------------------------------------------------
-# Load trained models.
-#
-# These models were trained using the larger historical dataset.
-# ------------------------------------------------------------------
-
-random_forest_model = SklearnQuantModel(
-    model_path=(
-        "models/"
-        "random_forest_full.joblib"
-    ),
-    model_name="random_forest",
-)
-
-
-xgboost_model = SklearnQuantModel(
-    model_path=(
-        "models/"
-        "xgboost_full.joblib"
-    ),
-    model_name="xgboost",
-)
+logger = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------------
-# Create the ensemble.
+# Model artifacts.
 #
-# Current application weights:
-#
-# Random Forest = 50%
-# XGBoost       = 50%
-#
-# These weights are a working configuration.
-# They are not being treated as an optimized trading rule.
+# These models were trained using the larger historical dataset. The
+# registry maps a stable model name to the artifact it loads so the
+# ensemble membership can be changed via ``ENSEMBLE_MODELS`` without
+# editing this module.
 # ------------------------------------------------------------------
 
-quant_model = EnsembleQuantModel(
-    models=[
-        random_forest_model,
-        xgboost_model,
-    ],
-    model_weights={
-        "random_forest": 0.5,
-        "xgboost": 0.5,
-    },
-)
+MODEL_ARTIFACTS = {
+    "random_forest": "models/random_forest_full.joblib",
+    "xgboost": "models/xgboost_full.joblib",
+    "logistic_regression": "models/logistic_regression_full.joblib",
+}
+
+
+@lru_cache(maxsize=1)
+def get_quant_model() -> EnsembleQuantModel:
+    """Build the ensemble on first use.
+
+    Loading the ``.joblib`` artifacts at import time made importing this
+    module - and therefore the analysis graph - fail whenever the artifacts
+    were absent, which is always the case on a fresh checkout because they
+    are git-ignored. Constructing lazily keeps imports cheap and lets the
+    graph import without the models; a genuinely missing artifact then
+    surfaces as the quant agent's NO_TRADE fallback rather than a crash at
+    collection time.
+    """
+
+    models: list[SklearnQuantModel] = []
+
+    for name in ensemble_models():
+
+        artifact = MODEL_ARTIFACTS.get(name)
+
+        if artifact is None:
+            continue
+
+        models.append(
+            SklearnQuantModel(
+                model_path=artifact,
+                model_name=name,
+            )
+        )
+
+    if not models:
+
+        raise RuntimeError(
+            "No quant models are configured. Check ENSEMBLE_MODELS "
+            "and the model artifacts."
+        )
+
+    weights = ensemble_weights()
+
+    return EnsembleQuantModel(
+        models=models,
+        model_weights={
+            model.model_name: weights[model.model_name]
+            for model in models
+        },
+    )
 
 
 def _extract_market_dataframe(
@@ -420,7 +441,7 @@ def _create_quant_prediction(
     # Run Random Forest + XGBoost ensemble.
     # --------------------------------------------------------------
 
-    prediction = quant_model.predict(
+    prediction = get_quant_model().predict(
         latest_features
     )
 
@@ -473,9 +494,11 @@ def run_quant_agent(
         # A model failure must never become a BUY or SELL signal.
         # ----------------------------------------------------------
 
-        print(
-            "Quant Agent error: "
-            f"{type(exc).__name__}: {exc}"
+        logger.warning(
+            "Quant Agent failed: %s: %s",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
         )
 
         return {
@@ -519,6 +542,17 @@ def run_quant_agent(
     # Return the successful Quant prediction.
     # --------------------------------------------------------------
 
+    # Calibrate the ensemble probability the same way as the LLM agents:
+    # calibrated value on the contract field, raw probability kept for
+    # audit. The "probability" key keeps ML terminology (raw); the
+    # "confidence" key is the calibrated contract value.
+    raw_probability = prediction.probability
+
+    calibrated_confidence = calibrate_confidence(
+        raw_probability,
+        "quant",
+    )
+
     return {
         "quant_prediction": {
 
@@ -528,13 +562,15 @@ def run_quant_agent(
 
             # ML terminology
             "probability": (
-                prediction.probability
+                raw_probability
             ),
 
             # Existing ForexAI response contract
             "confidence": (
-                prediction.probability
+                calibrated_confidence
             ),
+
+            "raw_confidence": raw_probability,
 
             "model": (
                 prediction.model_name

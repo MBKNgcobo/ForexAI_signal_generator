@@ -4,6 +4,7 @@ from app.llm.llm_provider import LLMProvider
 from app.schemas.technical import (
     TechnicalAnalysisResponse,
 )
+from app.services.confidence_calibration import calibrate_confidence
 from app.services.technical_indicators import (
     calculate_atr,
     calculate_ema,
@@ -78,11 +79,19 @@ class TechnicalAgent:
             llm_response
         )
 
+        # LLM self-reported confidences skew overconfident; store the raw
+        # value for audit and the calibrated value as the contract field.
+        raw_confidence = analysis.confidence
+
         return {
             "technical_analysis": {
                 **evidence,
                 "direction": analysis.direction,
-                "confidence": analysis.confidence,
+                "confidence": calibrate_confidence(
+                    raw_confidence,
+                    "technical",
+                ),
+                "raw_confidence": raw_confidence,
                 "summary": analysis.summary,
                 "reasoning": analysis.reasoning,
             }

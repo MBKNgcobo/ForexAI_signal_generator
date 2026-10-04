@@ -5,7 +5,6 @@ import pandas as pd
 
 from app.models.quant_model import QuantModel
 from app.models.quant_prediction import QuantPrediction
-from app.models.targets import CLASS_NAMES
 
 # Model artifacts live in <repo>/models. Resolving them against the process
 # working directory meant inference only worked when uvicorn/pytest happened

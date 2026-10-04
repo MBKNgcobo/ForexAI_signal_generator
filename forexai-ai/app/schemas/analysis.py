@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.ai_response import AiAnalysisResponse
 from app.schemas.market import Timeframe
 
 
@@ -20,6 +21,15 @@ class AnalyzeMarketRequest(BaseModel):
 
     symbol: str
     timeframe: str
+
+    #: Optional push delivery (P4). Set by the C# gateway so a hosted
+    #: analysis can reach a local execution bridge without the caller
+    #: polling. Ignored on batch *items* - the batch level
+    #: ``webhook_url`` is the one that fires.
+    webhook_url: str | None = Field(
+        default=None,
+        description="Optional HTTP(S) URL to POST the response to.",
+    )
 
     @field_validator("symbol")
     @classmethod
@@ -45,3 +55,36 @@ class AnalyzeMarketRequest(BaseModel):
         """
 
         return Timeframe(value.strip()).value
+
+
+class BatchAnalyzeMarketRequest(BaseModel):
+    """One call, N pairs: the dashboard watchlist use-case.
+
+    ``webhook_url`` is optional push delivery (P4): after the batch is
+    mapped, the response is POSTed to the URL. Failures are logged, never
+    raised; the allowlist in ``app/config.py`` guards against SSRF.
+    """
+
+    requests: list[AnalyzeMarketRequest] = Field(
+        min_length=1,
+        max_length=50,
+        description="Pairs to analyse; hard cap re-checked in the route.",
+    )
+
+    webhook_url: str | None = Field(
+        default=None,
+        description="Optional HTTPS URL to POST the batch response to.",
+    )
+
+
+class BatchItemError(BaseModel):
+    index: int
+    status: int
+    detail: str
+
+
+class BatchAnalysisResponse(BaseModel):
+    """Per-item results; one bad pair never fails the whole batch."""
+
+    results: list[AiAnalysisResponse] = Field(default_factory=list)
+    errors: list[BatchItemError] = Field(default_factory=list)

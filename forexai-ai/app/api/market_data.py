@@ -4,11 +4,10 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from app.api.security import require_api_key
-from app.config import get_env
 from app.schemas.market import Timeframe
 from app.services.market_data_service import MarketDataService
-from app.services.twelve_data_market_data_provider import (
-    TwelveDataMarketDataProvider,
+from app.services.market_data_provider_factory import (
+    create_market_data_provider,
 )
 from app.services.market_data_cache import MarketDataCache
 
@@ -33,22 +32,23 @@ def build_market_data_service() -> MarketDataService:
     The result is memoised so the 30-second candle cache survives across
     requests. ``lru_cache`` does not store exceptions, so a missing key keeps
     returning 503 instead of poisoning the cache.
+
+    The concrete channel (TwelveData or local MT5) comes from
+    ``MARKET_DATA_PROVIDER`` via the shared factory; misconfiguration
+    surfaces as 503 with the factory's actionable message.
     """
 
-    api_key = get_env("TWELVE_DATA_API_KEY")
-
-    if not api_key:
+    try:
+        provider = create_market_data_provider()
+    except RuntimeError as exc:
         raise HTTPException(
             status_code=503,
-            detail=(
-                "TWELVE_DATA_API_KEY is not configured. "
-                "See .env.example for the required configuration."
-            ),
+            detail=str(exc),
             headers={"Retry-After": "30"},
-        )
+        ) from exc
 
     return MarketDataService(
-        TwelveDataMarketDataProvider(api_key=api_key),
+        provider,
         MarketDataCache(ttl_seconds=30),
     )
 

@@ -238,13 +238,8 @@ def run_risk_agent(
     )
 
     # --------------------------------------------------------------
-    # Determine whether the Quant Agent provides useful support.
+    # Determine whether the Quant Agent provides strong support.
     # --------------------------------------------------------------
-
-    quant_has_reasonable_confidence = (
-        dominant_quant_probability
-        >= MIN_QUANT_PROBABILITY
-    )
 
     quant_has_strong_confidence = (
         dominant_quant_probability

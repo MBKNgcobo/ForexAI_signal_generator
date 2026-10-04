@@ -302,13 +302,21 @@ builder.Services.AddScoped<
 // Configuration:
 //
 // "PythonApi": {
-//     "BaseUrl": "http://127.0.0.1:8000"
+//     "BaseUrl": "http://127.0.0.1:8000",
+//     "ApiKey": ""
 // }
+//
 //
 
 var pythonBaseUrl =
     configuration["PythonApi:BaseUrl"]
     ?? "http://127.0.0.1:8000";
+
+// The Python service is public on a hosted deployment, so its X-API-Key
+// guard must be satisfied here or every gateway call would be rejected.
+// Unset keeps the local guard-free development behaviour.
+var pythonApiKey =
+    configuration["PythonApi:ApiKey"];
 
 builder.Services.AddHttpClient<
     IAiAnalysisClient,
@@ -317,6 +325,13 @@ builder.Services.AddHttpClient<
     {
         client.BaseAddress = new Uri(pythonBaseUrl);
         client.Timeout = TimeSpan.FromMinutes(3); // 180 second
+
+        if (!string.IsNullOrWhiteSpace(pythonApiKey))
+        {
+            client.DefaultRequestHeaders.Add(
+                "X-API-Key",
+                pythonApiKey);
+        }
     });
 
 
@@ -327,6 +342,13 @@ builder.Services.AddHttpClient<
     {
         client.BaseAddress = new Uri(pythonBaseUrl);
         client.Timeout = TimeSpan.FromSeconds(30);
+
+        if (!string.IsNullOrWhiteSpace(pythonApiKey))
+        {
+            client.DefaultRequestHeaders.Add(
+                "X-API-Key",
+                pythonApiKey);
+        }
     });
 
 
@@ -383,6 +405,19 @@ app.UseCors(
 app.UseAuthentication();
 
 app.UseAuthorization();
+
+// Liveness probe for orchestrators and uptime monitors (Render health
+// checks, UptimeRobot). Anonymous by design: it has to answer before
+// authentication and it exposes nothing but a status string. Registered
+// before MapControllers so it wins over the SPA fallback.
+app.MapGet(
+    "/health",
+    () => Results.Ok(
+        new
+        {
+            Status = "ForexAI API is running"
+        }))
+    .AllowAnonymous();
 
 app.MapControllers();
 

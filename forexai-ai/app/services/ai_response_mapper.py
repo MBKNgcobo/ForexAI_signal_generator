@@ -1,6 +1,7 @@
 from app.schemas.ai_response import (
     AgentAnalysis,
     AiAnalysisResponse,
+    Explanation,
     FinalDecision,
     RiskAssessment,
 )
@@ -35,6 +36,96 @@ def _section(result: dict, key: str) -> dict:
         )
 
     return value
+
+
+def _safe_confidence(value) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+    return min(1.0, max(0.0, parsed))
+
+
+def _build_explanation(
+    technical_analysis: dict,
+    fundamental_analysis: dict,
+    quant_prediction: dict,
+    risk_assessment: dict,
+    final_decision: dict,
+) -> Explanation:
+    """Build the auditable "why" from sections the graph already produces.
+
+    No new inference: agreement math, veto flags and per-agent summaries
+    are reused. ``drivers`` lists agreeing specialists strongest-first;
+    ``dissent`` captures the opposer (if any) with a reason fragment.
+    """
+
+    agreement = _safe_confidence(risk_assessment.get("agreement", 0.0))
+
+    quant_agreement = _safe_confidence(
+        risk_assessment.get(
+            "quant_model_agreement",
+            quant_prediction.get("model_agreement", 0.0),
+        )
+    )
+
+    final_direction = final_decision.get("direction")
+
+    specialists = (
+        ("technical", technical_analysis),
+        ("fundamental", fundamental_analysis),
+        ("quant", quant_prediction),
+    )
+
+    drivers: list[str] = []
+    dissent: list[str] = []
+
+    for name, section in sorted(
+        specialists,
+        key=lambda item: _safe_confidence(item[1].get("confidence", 0.0)),
+        reverse=True,
+    ):
+        direction = section.get("direction")
+        confidence = _safe_confidence(section.get("confidence", 0.0))
+
+        if direction == final_direction and final_direction in {
+            "BUY",
+            "SELL",
+        }:
+            drivers.append(f"{name} agrees ({direction} {confidence:.0%})")
+        elif direction in {"BUY", "SELL"} and final_direction in {
+            "BUY",
+            "SELL",
+            "HOLD",
+            "NO_TRADE",
+        }:
+            summary = str(section.get("summary", "")).strip()
+
+            fragment = f": {summary[:120]}" if summary else ""
+            dissent.append(f"{name} says {direction}{fragment}")
+
+    quant_direction = quant_prediction.get("direction")
+    quant_probability = _safe_confidence(
+        risk_assessment.get(
+            "quant_probability",
+            quant_prediction.get("probability", 0.0),
+        )
+    )
+
+    quant_vetoed = bool(
+        final_direction == "NO_TRADE"
+        and quant_direction in {"BUY", "SELL"}
+        and quant_probability >= 0.60
+    )
+
+    return Explanation(
+        agreement=agreement,
+        quant_agreement=quant_agreement,
+        quant_vetoed=quant_vetoed,
+        drivers=drivers[:2],
+        dissent=dissent[:2],
+    )
 
 
 # This is a boundary pattern.
@@ -72,18 +163,21 @@ def map_graph_result_to_response(
         technical_analysis=AgentAnalysis(
             direction=technical_analysis["direction"],
             confidence=technical_analysis["confidence"],
+            raw_confidence=technical_analysis.get("raw_confidence"),
             summary=technical_analysis["summary"],
         ),
 
         fundamental_analysis=AgentAnalysis(
             direction=fundamental_analysis["direction"],
             confidence=fundamental_analysis["confidence"],
+            raw_confidence=fundamental_analysis.get("raw_confidence"),
             summary=fundamental_analysis["summary"],
         ),
 
         quant_prediction=AgentAnalysis(
             direction=quant_prediction["direction"],
             confidence=quant_prediction["confidence"],
+            raw_confidence=quant_prediction.get("raw_confidence"),
             summary=quant_prediction["summary"],
         ),
 
@@ -102,5 +196,13 @@ def map_graph_result_to_response(
             direction=final_decision["direction"],
             confidence=final_decision["confidence"],
             reasoning=final_decision["reasoning"],
+        ),
+
+        explanation=_build_explanation(
+            technical_analysis,
+            fundamental_analysis,
+            quant_prediction,
+            risk_assessment,
+            final_decision,
         ),
     )

@@ -1,6 +1,3 @@
-import pandas as pd
-
-
 def calculate_metrics(trades) -> dict:
 
     if not trades:
@@ -13,6 +10,9 @@ def calculate_metrics(trades) -> dict:
             "win_rate": 0.0,
             "total_profit": 0.0,
             "profit_factor": 0.0,
+            "expectancy": 0.0,
+            "avg_win": 0.0,
+            "avg_loss": 0.0,
         }
 
     winning_trades = [
@@ -51,6 +51,28 @@ def calculate_metrics(trades) -> dict:
         )
     )
 
+    winning_profits = [
+        trade.profit
+        for trade in winning_trades
+    ]
+
+    losing_profits = [
+        trade.profit
+        for trade in losing_trades
+    ]
+
+    avg_win = (
+        sum(winning_profits) / len(winning_profits)
+        if winning_profits
+        else 0.0
+    )
+
+    avg_loss = (
+        sum(losing_profits) / len(losing_profits)
+        if losing_profits
+        else 0.0
+    )
+
     # A trade closed by TIME_EXIT can be
     # profitable or unprofitable, so include
     # it when measuring realised P/L.
@@ -85,6 +107,12 @@ def calculate_metrics(trades) -> dict:
         for trade in realised_trades
     )
 
+    expectancy = (
+        total_profit / len(realised_trades)
+        if realised_trades
+        else 0.0
+    )
+
     return {
         "total_trades": len(trades),
         "winning_trades": len(winning_trades),
@@ -94,4 +122,7 @@ def calculate_metrics(trades) -> dict:
         "win_rate": win_rate,
         "total_profit": total_profit,
         "profit_factor": profit_factor,
+        "expectancy": expectancy,
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
     }

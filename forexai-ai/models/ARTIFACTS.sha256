@@ -1,0 +1,17 @@
+# Quant ensemble artifacts (sha256sum format: "<hash>  <file>").
+#
+# The trained .joblib binaries are git-ignored (48 MB of environment-specific
+# blobs), so a fresh clone - which is exactly what a hosted CI build sees -
+# has no quant models and the Dockerfile's "COPY models" has nothing to copy.
+# This manifest lets the image build fetch the exact versions the local
+# service uses, with checksum verification, instead of committing them.
+#
+# Regenerate after retraining:
+#   cd forexai-ai/models && sha256sum *_full.joblib calibration.json
+#
+# Upload the same files as assets of a GitHub release (tag "models-v1") so
+# the default MODEL_ARTIFACTS_BASE_URL below resolves.
+da0192cdde5d5008f5825f844f54e463e36876787e2f906fb066941ae69401d6  logistic_regression_full.joblib
+ebff04b70b0b4e4a5ee3c76c9f446d7fe34aa7ca5ea5af7571639088e5e62161  random_forest_full.joblib
+32282d8810483f7567216fcb364e71713f6ce692e1950ba0e1004329bb4d77f1  xgboost_full.joblib
+20d3f22a84301c1480c60a75a7e152ae4fb7bc08810fa85498ef3e192909e5be  calibration.json

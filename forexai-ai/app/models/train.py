@@ -16,7 +16,6 @@ from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
 from app.models.features import FEATURE_COLUMNS
-from app.models.targets import CLASS_NAMES
 
 
 DATASET_FILE = Path(

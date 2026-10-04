@@ -34,6 +34,7 @@ ormsgpack==1.12.2
 packaging==26.3
 pandas==3.0.5
 pluggy==1.6.0
+prometheus_client==0.26.0
 psycopg[binary]==3.3.6
 pydantic==2.13.5
 pydantic_core==2.46.5
@@ -60,3 +61,4 @@ websockets==16.1.1
 xgboost==3.4.1
 xxhash==4.0.1
 zstandard==0.25.0
+MetaTrader5==5.0.6231; sys_platform == 'win32'

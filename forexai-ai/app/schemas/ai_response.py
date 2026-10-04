@@ -9,6 +9,14 @@ class AgentAnalysis(BaseModel):
         le=1.0,
     )
 
+    # Raw pre-calibration confidence, kept for audit. Optional so older
+    # graph states (and third-party callers) still validate.
+    raw_confidence: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+    )
+
     summary: str
 
 
@@ -44,6 +52,31 @@ class FinalDecision(BaseModel):
     reasoning: str
 
 
+class Explanation(BaseModel):
+    """Auditable "why" behind the signal, built from existing graph state.
+
+    Additive only: older clients ignore it, the dashboard renders it as a
+    "Why this signal" block. ``drivers`` names the agreeing specialists,
+    ``dissent`` names the opposer (if any) with a reason fragment.
+    """
+
+    agreement: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
+
+    quant_agreement: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
+
+    quant_vetoed: bool = False
+
+    drivers: list[str] = Field(default_factory=list)
+
+    dissent: list[str] = Field(default_factory=list)
+
+
 class AiAnalysisResponse(BaseModel):
     symbol: str
     timeframe: str
@@ -57,3 +90,5 @@ class AiAnalysisResponse(BaseModel):
     risk_assessment: RiskAssessment
 
     final_decision: FinalDecision
+
+    explanation: Explanation | None = None

@@ -8,3 +8,41 @@ asyncio_mode = "auto"
 filterwarnings = [
     "ignore::DeprecationWarning:anyio.*",
 ]
+
+
+[tool.ruff]
+# Pin the target so the same rules apply identically on a developer machine
+# and in CI (ruff is installed from requirements-dev.txt).
+target-version = "py314"
+
+
+[tool.ruff.lint]
+# pyflakes + pycodestyle errors: undefined names, unused imports/variables,
+# syntax problems. Style-only rule families are intentionally left off so the
+# gate stays meaningful without reformatting the whole codebase.
+select = ["E", "F"]
+ignore = [
+    # The codebase uses a deliberate one-argument-per-line style that
+    # routinely exceeds 88 columns; enforcing a width would only add noise.
+    "E501",
+]
+
+
+[tool.coverage.run]
+source = ["app"]
+# Offline one-shot CLIs (dataset building, training, backtesting) read local
+# CSVs and write artifacts. They are exercised manually, not by the hermetic
+# suite, so they are excluded from the coverage denominator.
+omit = [
+    "app/data/*",
+    "app/models/build_dataset.py",
+    "app/models/predict.py",
+    "app/models/train.py",
+    "app/models/train_demo_model.py",
+    "app/backtesting/*",
+]
+
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

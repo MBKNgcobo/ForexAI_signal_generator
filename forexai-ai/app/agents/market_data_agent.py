@@ -1,14 +1,17 @@
+import logging
 from functools import lru_cache
 
 from dotenv import load_dotenv
 
 from app.services.market_data_service import MarketDataService
-from app.services.twelve_data_market_data_provider import (
-    TwelveDataMarketDataProvider,
+from app.services.market_data_provider_factory import (
+    create_market_data_provider,
 )
 from app.services.market_data_cache import MarketDataCache
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 AI_ANALYSIS_CANDLE_LIMIT = 300
 
@@ -21,20 +24,12 @@ def get_market_data_service() -> MarketDataService:
     TWELVE_DATA_API_KEY was unset, which crashed the container while it was
     still importing app.main. Deferring construction lets the service boot;
     callers get a clear error only when market data is actually requested.
+
+    The concrete channel (TwelveData or local MT5) comes from
+    ``MARKET_DATA_PROVIDER`` via the shared factory.
     """
 
-    import os
-
-    api_key = os.getenv("TWELVE_DATA_API_KEY")
-
-    if not api_key:
-        raise RuntimeError(
-            "TWELVE_DATA_API_KEY is not configured."
-        )
-
-    provider = TwelveDataMarketDataProvider(
-        api_key=api_key
-    )
+    provider = create_market_data_provider()
 
     return MarketDataService(
         provider=provider,
@@ -58,11 +53,13 @@ async def run_market_data_agent(
         )
     )
 
-    print(
-    f"Market Data Agent: "
-    f"{symbol} {timeframe} "
-    f"retrieved {len(market_data.candles)} candles"
-)
+    logger.info(
+        "Market Data Agent: %s %s retrieved %d candles",
+        symbol,
+        timeframe,
+        len(market_data.candles),
+    )
+
     return {
         "market_data": [
             candle.model_dump()

@@ -1,5 +1,4 @@
 import asyncio
-import inspect
 import logging
 import os
 import random
@@ -119,28 +118,6 @@ def _retry_after_seconds(exc: Exception) -> float | None:
         return None
 
 
-
-def timed_node(name, node):
-    async def wrapped(state):
-        start = time.perf_counter()
-
-        try:
-            result = node(state)
-
-            if inspect.isawaitable(result):
-                result = await result
-
-            return result
-
-        finally:
-            elapsed = time.perf_counter() - start
-            logger.info(
-                "TIMING %s: %.3f seconds",
-                name,
-                elapsed,
-            )
-
-    return wrapped
 
 class OpenRouterProvider(LLMProvider):
     """

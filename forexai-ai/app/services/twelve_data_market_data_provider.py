@@ -1,9 +1,12 @@
+import logging
 from datetime import datetime, timezone
 
 import httpx
 
 from app.schemas.market import MarketData
 from app.services.market_data_provider import MarketDataProvider
+
+logger = logging.getLogger(__name__)
 
 
 class TwelveDataMarketDataProvider(MarketDataProvider):
@@ -51,9 +54,11 @@ class TwelveDataMarketDataProvider(MarketDataProvider):
             "apikey": self.api_key,
         }
 
-        print(
-            f"Twelve Data request: "
-            f"{provider_symbol} / {interval} / {limit}"
+        logger.debug(
+            "Twelve Data request: %s / %s / %d",
+            provider_symbol,
+            interval,
+            limit,
         )
 
         timeout = httpx.Timeout(
@@ -72,9 +77,9 @@ class TwelveDataMarketDataProvider(MarketDataProvider):
                 params=params,
             )
 
-        print(
-            f"Twelve Data response status: "
-            f"{response.status_code}"
+        logger.debug(
+            "Twelve Data response status: %s",
+            response.status_code,
         )
 
         if response.status_code == 429:

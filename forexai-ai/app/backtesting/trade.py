@@ -16,3 +16,7 @@ class Trade:
 
     result: str | None = None
     profit: float = 0.0
+    # Round-trip transaction cost (spread + slippage + commission) charged
+    # against this trade, in price units. Kept separate from ``profit`` (which
+    # is net) so reports can distinguish gross edge from execution drag.
+    cost: float = 0.0

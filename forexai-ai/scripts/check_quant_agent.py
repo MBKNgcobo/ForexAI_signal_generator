@@ -1,12 +1,5 @@
 import asyncio
 
-from app.agents.quant_agent import (
-    run_quant_agent,
-)
-from app.services.market_data_service import (
-    MarketDataService,
-)
-
 
 async def main():
 

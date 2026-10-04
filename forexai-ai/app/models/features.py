@@ -4,7 +4,7 @@ import pandas as pd
 # RSI lives in one place. ``calculate_rsi`` is re-exported here so that
 # existing callers of ``app.models.features`` keep working.
 from app.services.technical_indicators import (
-    calculate_rsi,
+    calculate_rsi as calculate_rsi,
     _rsi_from_averages,
 )
 

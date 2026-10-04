@@ -1,0 +1,9 @@
+{
+  "_comment": "Per-source confidence calibration (raw -> calibrated). Hand-seeded neutral prior: identity-ish with mild shrinkage toward 0.5 because LLM self-reported confidences skew overconfident. Regenerate from app/backtesting/threshold_analysis.py output (predicted-bucket -> empirical-win-rate) and keep this file git-tracked and auditable.",
+  "version": 1,
+  "sources": {
+    "technical": [[0.0, 0.0], [0.5, 0.5], [0.6, 0.57], [0.7, 0.64], [0.8, 0.71], [0.9, 0.78], [1.0, 0.85]],
+    "fundamental": [[0.0, 0.0], [0.5, 0.5], [0.6, 0.56], [0.7, 0.62], [0.8, 0.68], [0.9, 0.74], [1.0, 0.8]],
+    "quant": [[0.0, 0.0], [0.5, 0.5], [0.6, 0.58], [0.7, 0.66], [0.8, 0.74], [0.9, 0.82], [1.0, 0.9]]
+  }
+}

@@ -25,7 +25,10 @@ __pycache__
 # ---------------------------------------------------------------------------
 data
 tests
-scripts
+# scripts/* (not the bare directory name) so the single build-time script the
+# image needs can be re-included by the negation on the next line.
+scripts/*
+!scripts/fetch_model_artifacts.py
 backups
 file-structure.txt
 *.log
