@@ -131,6 +131,83 @@ def test_proxied_locations_declare_the_upstream_url(template):
         ), f"hardcoded upstream in {pass_lines}"
 
 
+def test_health_probe_is_answered_locally(template):
+    """The regression: /health proxied to a sleeping free-tier service.
+
+    Render probes ``healthCheckPath`` on a fixed interval. While that
+    location proxied to ``forexai-csharp-api``, a free-tier service that had
+    spun down after its idle window forced a ~50 s cold start. Render's
+    checker abandoned the request before nginx could answer, and because no
+    response was ever written nginx logged ``499`` (client closed the
+    connection) rather than a status code. That repeated every 10 s, the
+    dashboard never went healthy, and the deploy ended in a restart loop
+    until it timed out.
+
+    A liveness probe may only assert what *this* service can vouch for -
+    that nginx is up and serving. Whether the API is reachable is the API's
+    own health check's job (``render.yaml`` -> ``forexai-csharp-api``,
+    ``healthCheckPath: /health``).
+    """
+
+    blocks = [
+        (name, directives)
+        for name, directives in _locations(template)
+        if "/health" in name
+    ]
+
+    assert len(blocks) == 1, (
+        "expected exactly one /health location (exact or prefix match); "
+        f"found {[name for name, _ in blocks]}"
+    )
+
+    name, directives = blocks[0]
+
+    active = [
+        directive
+        for directive in directives
+        if not _is_comment(directive)
+    ]
+
+    offenders = [
+        directive
+        for directive in active
+        if directive.startswith("proxy_")
+    ]
+
+    assert not offenders, (
+        f"{name} is the dashboard's own liveness probe and must not depend on "
+        f"a downstream service, but these directives proxy it: {offenders}. "
+        "Return a static 200 instead - the API has its own health check."
+    )
+
+    assert any(
+        directive.startswith("return 200") for directive in active
+    ), (
+        f"{name} must return a static 200 so nginx always has a response to "
+        f"write; its active directives were {active}"
+    )
+
+
+def test_health_probe_uses_an_exact_match(template):
+    """``location = /health`` so the SPA cannot answer the probe.
+
+    A prefix ``location /health`` also captures ``/healthz`` and
+    ``/healthcheck``; exact matching keeps the probe unambiguous.
+    """
+
+    health = [
+        name
+        for name, _ in _locations(template)
+        if "/health" in name
+    ]
+
+    assert all(
+        name.startswith("location = ") for name in health
+    ), (
+        f"health probe must be an exact-match location: {health}"
+    )
+
+
 def test_every_https_proxy_sends_sni(template):
     """The regression: /health proxied to https without SNI.
 
