@@ -406,18 +406,11 @@ app.UseAuthentication();
 
 app.UseAuthorization();
 
-// Liveness probe for orchestrators and uptime monitors (Render health
-// checks, UptimeRobot). Anonymous by design: it has to answer before
-// authentication and it exposes nothing but a status string. Registered
-// before MapControllers so it wins over the SPA fallback.
-app.MapGet(
-    "/health",
-    () => Results.Ok(
-        new
-        {
-            Status = "ForexAI API is running"
-        }))
-    .AllowAnonymous();
+// Liveness is served by HealthController ([Route("health")], anonymous).
+// Do NOT also MapGet("/health") here: two endpoints matching the same route
+// make Kestrel throw AmbiguousMatchException, /health returns 500, and an
+// orchestrator that gates on it restarts the service in a loop until the
+// deploy times out.
 
 app.MapControllers();
 
@@ -434,4 +427,14 @@ if (args.Contains("--migrate", StringComparer.OrdinalIgnoreCase))
 }
 
 app.Run();// in Program.cs, under // Repositories
+
+/// <summary>
+/// Top-level statements generate an internal Program class. Declaring it
+/// public lets the test project host the real application through
+/// WebApplicationFactory, which is what makes the routing smoke tests
+/// (duplicate "/health" endpoints, ambiguous matches) possible.
+/// </summary>
+public partial class Program
+{
+}
 

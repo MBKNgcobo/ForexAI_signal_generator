@@ -227,6 +227,8 @@ curl.exe -X POST https://forexai-csharp-api.onrender.com/api/analysis `
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| `AmbiguousMatchException: The request matched multiple endpoints` on `GET /health` | Two endpoints claim the same route (e.g. a `MapGet("/health")` alongside `HealthController`) | Remove the duplicate; `/health` is served by `HealthController`. `HealthEndpointTests` fails if this regresses |
+| `Hosting failed to start` / `TaskCanceledException at KestrelServerImpl.BindAsync` | Usually a symptom: the health endpoint 500s, so the deploy restarts in a loop until it times out | Fix whatever `/health` is returning — `curl https://forexai-csharp-api.onrender.com/health` |
 | `free not a valid plan for service type cron` | A cron service in `render.yaml` | Migrations moved to `.github/workflows/db-migrate.yml`; remove the cron block |
 | Migration workflow fails on `Jwt__Key` | Repository secret missing | Add `JWT_KEY` and `NEON_CONNECTION_STRING` under repo Settings → Actions |
 | `401` on `/analysis` | `PythonApi__ApiKey` ≠ `AI_SERVICE_API_KEY` | Copy the python-ai key into csharp-api and redeploy |
