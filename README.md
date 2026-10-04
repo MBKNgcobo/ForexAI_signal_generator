@@ -11,7 +11,6 @@
 ![Docker](https://img.shields.io/badge/docker-compose-ready-2496ED?logo=docker&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-78%2B-brightgreen)
 
-[Architecture](#architecture) · [Components](#components) · [Quick start](#quick-start) · [Configuration](#configuration) · [Testing](#testing)
 
 </div>
 
