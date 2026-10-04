@@ -227,6 +227,7 @@ curl.exe -X POST https://forexai-csharp-api.onrender.com/api/analysis `
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| `SSL_do_handshake() failed ... SSL alert number 40` / `no live upstreams` in the dashboard nginx log | A proxied `location` is missing `proxy_ssl_server_name on;`, so Render's edge rejects the handshake | Add the directive to every location with an `https://` upstream (`/api/` and `/health`); `test_dashboard_nginx.py` enforces this |
 | `AmbiguousMatchException: The request matched multiple endpoints` on `GET /health` | Two endpoints claim the same route (e.g. a `MapGet("/health")` alongside `HealthController`) | Remove the duplicate; `/health` is served by `HealthController`. `HealthEndpointTests` fails if this regresses |
 | `Hosting failed to start` / `TaskCanceledException at KestrelServerImpl.BindAsync` | Usually a symptom: the health endpoint 500s, so the deploy restarts in a loop until it times out | Fix whatever `/health` is returning — `curl https://forexai-csharp-api.onrender.com/health` |
 | `free not a valid plan for service type cron` | A cron service in `render.yaml` | Migrations moved to `.github/workflows/db-migrate.yml`; remove the cron block |
