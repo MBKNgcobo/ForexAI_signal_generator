@@ -89,18 +89,20 @@ def _rsi_from_averages(
     return 100 - (100 / (1 + rs))
 
 
-def calculate_atr(
+def _true_ranges(
     candles: list[dict],
-    period: int = 14,
-) -> float | None:
+) -> list[float]:
+    """True range series shared by every ATR consumer.
 
-    if len(candles) <= period:
-        return None
+    Single definition so the live signal path (list-of-dict candles) and the
+    training path (DataFrame in ``app.models.features``) cannot drift apart:
+    first bar uses high-low (no previous close exists yet), every later bar
+    uses max(high-low, |high-prev_close|, |low-prev_close|).
+    """
 
     true_ranges = []
 
     for i, candle in enumerate(candles):
-
         high = candle["high"]
         low = candle["low"]
 
@@ -117,6 +119,48 @@ def calculate_atr(
 
         true_ranges.append(true_range)
 
-    return sum(
-        true_ranges[-period:]
-    ) / period
+    return true_ranges
+
+
+def wilder_atr_from_true_ranges(
+    true_ranges: list[float],
+    period: int = 14,
+) -> float | None:
+    """Wilder's ATR: SMA seed over the first ``period`` ranges, then EWM.
+
+    This is the canonical definition used by the training features and the
+    backtest labels. Live code must call this (via ``calculate_atr``), never
+    a plain SMA over the tail, or stops/targets/labels skew between train
+    and serve (SQA C-01).
+    """
+
+    if len(true_ranges) < period:
+        return None
+
+    atr = sum(true_ranges[:period]) / period
+
+    for true_range in true_ranges[period:]:
+        atr = ((atr * (period - 1)) + true_range) / period
+
+    return atr
+
+
+def calculate_atr(
+    candles: list[dict],
+    period: int = 14,
+) -> float | None:
+    """Wilder's ATR over the whole candle series (live-signal entrypoint).
+
+    Same maths as the training features: SMA seed, then Wilder smoothing.
+    The previous SMA-of-last-N implementation systematically understated
+    ATR on trending series, skewing every live stop/target away from the
+    values the model was trained and backtested on.
+    """
+
+    if len(candles) < period:
+        return None
+
+    return wilder_atr_from_true_ranges(
+        _true_ranges(candles),
+        period,
+    )

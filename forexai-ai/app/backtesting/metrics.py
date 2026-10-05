@@ -9,6 +9,9 @@ def calculate_metrics(trades) -> dict:
             "ambiguous_trades": 0,
             "win_rate": 0.0,
             "total_profit": 0.0,
+            "gross_profit": 0.0,
+            "total_cost": 0.0,
+            "net_profit": 0.0,
             "profit_factor": 0.0,
             "expectancy": 0.0,
             "avg_win": 0.0,
@@ -107,6 +110,17 @@ def calculate_metrics(trades) -> dict:
         for trade in realised_trades
     )
 
+    # SQA C-02: gross vs net transparency. ``profit`` on each trade is net
+    # of its round-trip cost, so gross is reconstructed by adding costs
+    # back. Both are reported so a strategy cannot look profitable while
+    # losing net of spread/slippage/commission.
+    total_cost = sum(
+        trade.cost
+        for trade in realised_trades
+    )
+
+    gross_profit_total = total_profit + total_cost
+
     expectancy = (
         total_profit / len(realised_trades)
         if realised_trades
@@ -121,6 +135,9 @@ def calculate_metrics(trades) -> dict:
         "ambiguous_trades": len(ambiguous_trades),
         "win_rate": win_rate,
         "total_profit": total_profit,
+        "gross_profit": gross_profit_total,
+        "total_cost": total_cost,
+        "net_profit": total_profit,
         "profit_factor": profit_factor,
         "expectancy": expectancy,
         "avg_win": avg_win,

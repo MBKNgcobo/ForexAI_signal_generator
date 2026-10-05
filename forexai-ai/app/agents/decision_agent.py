@@ -144,9 +144,50 @@ def run_decision_agent(
     average_confidence = (
         sum(confidences)
         / len(confidences)
-        if confidences
-        else 0.0
     )
+
+    # SQA C-04: a bare mean overstates dissent. BUY 0.9 + SELL 0.9 + BUY 0.5
+    # averaged 0.77 BUY despite a strong opposer. Scale by specialist
+    # agreement (from the risk gate when present, otherwise derived from the
+    # same vote counts) so a 2-1 split always scores below unanimity at the
+    # same mean.
+    agreement = None
+
+    try:
+        raw_agreement = risk.get("agreement", None)
+
+        if raw_agreement is not None:
+            agreement = float(raw_agreement)
+    except (TypeError, ValueError):
+        agreement = None
+
+    if agreement is None:
+        # No risk-gate value (older callers, unit fixtures): derive from the
+        # votes in this state. Never default to 1.0 — that would silently
+        # disable the dissent penalty.
+        directional_votes = buy_count + sell_count
+
+        if directional_votes > 0:
+            agreement = max(buy_count, sell_count) / 3.0
+        else:
+            agreement = 0.0
+
+    if agreement != agreement or agreement < 0.0:  # NaN / negative guard
+        agreement = 0.0
+
+    agreement = min(1.0, agreement)
+
+    if not risk_approved:
+        # No directional majority reached: agreement is the share of the
+        # largest voting bloc (2/3, 1/3, or 0 when nobody voted).
+        directional_votes = buy_count + sell_count
+
+        if directional_votes > 0:
+            agreement = max(buy_count, sell_count) / 3.0
+        else:
+            agreement = 0.0
+
+    weighted_confidence = average_confidence * (0.5 + 0.5 * agreement)
 
     # --------------------------------------------------------------
     # If risk rejects the trade, don't expose the
@@ -162,7 +203,7 @@ def run_decision_agent(
     else:
 
         final_confidence = (
-            average_confidence
+            weighted_confidence
         )
 
     # --------------------------------------------------------------
@@ -201,6 +242,11 @@ def run_decision_agent(
     reasoning_parts.append(
         f"Risk approved: "
         f"{risk_approved}."
+    )
+
+    reasoning_parts.append(
+        f"Specialist agreement: "
+        f"{agreement:.0%}."
     )
 
     reasoning_parts.append(

@@ -22,8 +22,11 @@ class TwelveDataMarketDataProvider(MarketDataProvider):
         "OneDay": "1day",
     }
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, transport=None):
         self.api_key = api_key
+        # Test seam (SQA C-03): hermetic tests inject httpx.MockTransport;
+        # production passes None and gets a standard client.
+        self._transport = transport
 
     async def get_market_data(
         self,
@@ -69,7 +72,8 @@ class TwelveDataMarketDataProvider(MarketDataProvider):
         )
 
         async with httpx.AsyncClient(
-            timeout=timeout
+            timeout=timeout,
+            transport=self._transport,
         ) as client:
 
             response = await client.get(
@@ -88,7 +92,22 @@ class TwelveDataMarketDataProvider(MarketDataProvider):
                 "Please wait before requesting more market data."
             )
 
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # SQA C-03: an upstream 5xx/timeout is a degraded dependency
+            # (503 + Retry-After), never an internal 500. RuntimeError is
+            # the existing 503 contract both callers already map.
+            status = exc.response.status_code if exc.response is not None else "unknown"
+
+            raise RuntimeError(
+                f"Twelve Data is unavailable (HTTP {status}). "
+                "Please retry shortly."
+            ) from exc
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(
+                "Twelve Data request timed out. Please retry shortly."
+            ) from exc
 
         payload = response.json()
 

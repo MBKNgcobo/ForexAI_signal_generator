@@ -7,9 +7,8 @@ from app.api.security import require_api_key
 from app.schemas.market import Timeframe
 from app.services.market_data_service import MarketDataService
 from app.services.market_data_provider_factory import (
-    create_market_data_provider,
+    get_shared_market_data_service,
 )
-from app.services.market_data_cache import MarketDataCache
 
 load_dotenv()
 
@@ -22,35 +21,25 @@ router = APIRouter(
 
 @lru_cache(maxsize=1)
 def build_market_data_service() -> MarketDataService:
-    """Construct the provider on first request and reuse it.
+    """Process-wide service shared with the analysis graph (Phase 2 SQA).
 
-    This used to run at import time and raised RuntimeError when the API key
-    was absent, so a container started without an environment file could not
-    even import the application. Missing credentials now surface as a 503 on
-    the endpoint that needs them.
+    Previously the route built its own provider+cache while the graph agent
+    built another, so identical symbols fetched twice warmed two caches.
+    Now both delegate to the shared factory instance; missing credentials
+    still surface as 503 on the endpoint that needs them.
 
-    The result is memoised so the 30-second candle cache survives across
-    requests. ``lru_cache`` does not store exceptions, so a missing key keeps
+    ``lru_cache`` does not store exceptions, so a missing key keeps
     returning 503 instead of poisoning the cache.
-
-    The concrete channel (TwelveData or local MT5) comes from
-    ``MARKET_DATA_PROVIDER`` via the shared factory; misconfiguration
-    surfaces as 503 with the factory's actionable message.
     """
 
     try:
-        provider = create_market_data_provider()
+        return get_shared_market_data_service()
     except RuntimeError as exc:
         raise HTTPException(
             status_code=503,
             detail=str(exc),
             headers={"Retry-After": "30"},
         ) from exc
-
-    return MarketDataService(
-        provider,
-        MarketDataCache(ttl_seconds=30),
-    )
 
 
 @router.get("/{symbol}")

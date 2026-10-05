@@ -15,19 +15,24 @@ from app.main import app
 def _reset_caches(monkeypatch):
     """Run with the shared-secret guard off and no cached provider.
 
-    Clearing the provider cache matters because a service built while
-    ``TWELVE_DATA_API_KEY`` was set would otherwise leak into the test that
-    asserts the missing-key 503.
+    Clearing both the route cache and the shared factory singleton matters
+    because a service built while ``TWELVE_DATA_API_KEY`` was set would
+    otherwise leak into the test that asserts the missing-key 503.
     """
 
     from app.api.market_data import build_market_data_service
+    from app.services.market_data_provider_factory import (
+        reset_shared_market_data_service,
+    )
 
     monkeypatch.delenv("AI_SERVICE_API_KEY", raising=False)
     expected_api_key.cache_clear()
     build_market_data_service.cache_clear()
+    reset_shared_market_data_service()
     yield
     expected_api_key.cache_clear()
     build_market_data_service.cache_clear()
+    reset_shared_market_data_service()
 
 
 @pytest.fixture
@@ -106,10 +111,14 @@ def test_all_supported_timeframes_are_accepted_by_schema(client):
 def test_market_data_service_is_reused_between_requests(monkeypatch):
 
     from app.api.market_data import build_market_data_service
+    from app.services.market_data_provider_factory import (
+        reset_shared_market_data_service,
+    )
 
     monkeypatch.setenv("TWELVE_DATA_API_KEY", "test-key")
 
     build_market_data_service.cache_clear()
+    reset_shared_market_data_service()
 
     try:
         first = build_market_data_service()
@@ -119,6 +128,7 @@ def test_market_data_service_is_reused_between_requests(monkeypatch):
 
     finally:
         build_market_data_service.cache_clear()
+        reset_shared_market_data_service()
 
 
 def test_missing_market_data_key_returns_503(client, monkeypatch):

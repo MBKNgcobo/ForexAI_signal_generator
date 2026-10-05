@@ -174,3 +174,44 @@ def test_metrics_include_time_exits_expectancy_and_averages():
     # No WIN/LOSS barrier trades in this fixture.
     assert metrics["avg_win"] == 0.0
     assert metrics["avg_loss"] == 0.0
+
+
+def test_gross_and_net_are_reported_separately():
+    # SQA C-02: a costed backtest must expose gross edge and net P/L
+    # independently so costs cannot hide inside a single profit number.
+    rows = [_signal_row(0)]
+    rows.extend(_quiet_rows(3))
+    frame = _frame(rows)
+
+    engine = BacktestEngine(
+        max_holding_period=2,
+        spread=0.0002,
+        commission=0.0001,
+        slippage=0.0001,
+    )
+    trades = engine.run(frame, probability_threshold=0.6)
+
+    metrics = calculate_metrics(trades)
+
+    assert metrics["total_cost"] == 0.0005
+    assert metrics["gross_profit"] == 0.0
+    assert metrics["net_profit"] == -0.0005
+    assert metrics["total_profit"] == metrics["net_profit"]
+    # gross - cost reconstructs net: no hidden drag.
+    assert metrics["gross_profit"] - metrics["total_cost"] == metrics["net_profit"]
+
+
+def test_frictionless_backtest_reports_zero_cost_explicitly():
+    # Zero-cost runs stay valid (baseline comparisons) but must say so via
+    # total_cost == 0 rather than omitting the field.
+    rows = [_signal_row(0)]
+    rows.extend(_quiet_rows(3))
+    frame = _frame(rows)
+
+    engine = BacktestEngine(max_holding_period=2)
+    trades = engine.run(frame, probability_threshold=0.6)
+
+    metrics = calculate_metrics(trades)
+
+    assert metrics["total_cost"] == 0.0
+    assert metrics["gross_profit"] == metrics["net_profit"]

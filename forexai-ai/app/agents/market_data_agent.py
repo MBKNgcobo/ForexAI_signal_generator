@@ -5,9 +5,8 @@ from dotenv import load_dotenv
 
 from app.services.market_data_service import MarketDataService
 from app.services.market_data_provider_factory import (
-    create_market_data_provider,
+    get_shared_market_data_service,
 )
-from app.services.market_data_cache import MarketDataCache
 
 load_dotenv()
 
@@ -18,23 +17,15 @@ AI_ANALYSIS_CANDLE_LIMIT = 300
 
 @lru_cache(maxsize=1)
 def get_market_data_service() -> MarketDataService:
-    """Build the provider on first use instead of at import time.
+    """Process-wide service shared with the HTTP route (Phase 2 SQA).
 
-    The previous module-level construction raised RuntimeError when
-    TWELVE_DATA_API_KEY was unset, which crashed the container while it was
-    still importing app.main. Deferring construction lets the service boot;
-    callers get a clear error only when market data is actually requested.
-
-    The concrete channel (TwelveData or local MT5) comes from
-    ``MARKET_DATA_PROVIDER`` via the shared factory.
+    Previously this built a private provider+cache, so graph fetches never
+    warmed the route cache and vice versa. Now delegates to the shared
+    factory instance. The lru_cache wrapper is kept so existing imports and
+    test patches keep working; reset via the factory's reset helper.
     """
 
-    provider = create_market_data_provider()
-
-    return MarketDataService(
-        provider=provider,
-        cache=MarketDataCache(ttl_seconds=30),
-    )
+    return get_shared_market_data_service()
 
 async def run_market_data_agent(
     state: dict,

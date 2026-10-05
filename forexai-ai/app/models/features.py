@@ -6,6 +6,7 @@ import pandas as pd
 from app.services.technical_indicators import (
     calculate_rsi as calculate_rsi,
     _rsi_from_averages,
+    _true_ranges,
 )
 
 
@@ -113,22 +114,48 @@ def calculate_atr(
     df: pd.DataFrame,
     period: int = 14
 ) -> pd.Series:
+    """Wilder ATR series sharing true-range maths with the live path.
 
-    previous_close = df["close"].shift(1)
+    The true ranges come from the single ``_true_ranges`` definition used by
+    ``app.services.technical_indicators.calculate_atr``; only the Wilder
+    recursion runs per-bar here (via pandas EWM, alpha=1/period, which is
+    algebraically identical to the scalar loop). Any change to true-range
+    construction must happen in that module, not here.
+    """
 
-    true_range = pd.concat(
+    closes = df["close"].tolist()
+    highs = df["high"].tolist()
+    lows = df["low"].tolist()
+
+    candles = [
+        {"high": high, "low": low, "close": close}
+        for high, low, close in zip(highs, lows, closes)
+    ]
+
+    true_range = pd.Series(
+        _true_ranges(candles),
+        index=df.index,
+        dtype=float,
+    )
+
+    # SMA seed over the first ``period`` ranges, then Wilder smoothing. The
+    # EWM mean seeds from the first observation, so pre-seed it explicitly to
+    # match wilder_atr_from_true_ranges exactly.
+    seed = true_range.iloc[:period].mean()
+
+    seeded = pd.concat(
         [
-            df["high"] - df["low"],
-            (df["high"] - previous_close).abs(),
-            (df["low"] - previous_close).abs(),
-        ],
-        axis=1,
-    ).max(axis=1)
+            pd.Series([seed], index=[df.index[period - 1]]),
+            true_range.iloc[period:],
+        ]
+    )
 
-    return true_range.ewm(
+    atr = seeded.ewm(
         alpha=1 / period,
-        adjust=False
+        adjust=False,
     ).mean()
+
+    return atr.reindex(df.index)
 
 
 def calculate_macd(

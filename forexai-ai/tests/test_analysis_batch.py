@@ -348,3 +348,53 @@ def test_batch_item_webhook_is_ignored(client, monkeypatch):
 
     assert response.status_code == 200
     assert delivered == []
+
+
+def test_batch_concurrency_is_bounded(client, monkeypatch):
+    """Phase 2 SQA: at most 3 items run concurrently (T-05).
+
+    A 6-pair batch of slow items must succeed while never exceeding the
+    semaphore ceiling — otherwise a full batch bursts 10x LLM + provider +
+    RAG calls and trips every quota at once.
+    """
+
+    in_flight = 0
+    peak = 0
+
+    class _SlowService(_FakeService):
+        async def analyze(self, symbol: str, timeframe: str) -> dict:
+            nonlocal in_flight, peak
+            in_flight += 1
+            peak = max(peak, in_flight)
+            try:
+                await asyncio.sleep(0.05)
+                return await super().analyze(symbol, timeframe)
+            finally:
+                in_flight -= 1
+
+    monkeypatch.setattr(
+        analysis_route,
+        "get_analysis_service",
+        lambda: _SlowService(),
+    )
+
+    response = client.post(
+        "/analysis/batch",
+        json={
+            "requests": [
+                _item(symbol)
+                for symbol in (
+                    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "EURGBP",
+                )
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert len(body["results"]) == 6
+    assert body["errors"] == []
+    assert peak <= 3
+    assert peak > 1  # genuinely concurrent, not serialised

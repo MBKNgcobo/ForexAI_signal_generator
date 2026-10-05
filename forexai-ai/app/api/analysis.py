@@ -163,8 +163,25 @@ async def analyze(
 async def _analyze_one(
     index: int,
     item: AnalyzeMarketRequest,
+    semaphore: asyncio.Semaphore | None = None,
 ) -> AiAnalysisResponse | BatchItemError:
     """Analyse one batch item; failures become per-item errors, not 500s."""
+
+    async def _run() -> AiAnalysisResponse | BatchItemError:
+        return await _analyze_one_inner(index, item)
+
+    if semaphore is None:
+        return await _run()
+
+    async with semaphore:
+        return await _run()
+
+
+async def _analyze_one_inner(
+    index: int,
+    item: AnalyzeMarketRequest,
+) -> AiAnalysisResponse | BatchItemError:
+    """Single-item pipeline shared by the batch route (semaphore outside)."""
 
     try:
         split_forex_symbol(item.symbol)
@@ -249,7 +266,9 @@ async def analyze_batch(
 
     Items run concurrently via ``asyncio.gather`` over the same path as
     ``POST /analysis``; each item's failure is captured per-item so one bad
-    pair never fails the whole batch.
+    pair never fails the whole batch. Concurrency is bounded (Phase 2 SQA):
+    at most 3 items run at once so a 10-pair batch cannot burst 10× LLM +
+    provider + RAG calls and trip every quota at once.
     """
 
     limit = analysis_batch_limit()
@@ -264,9 +283,11 @@ async def analyze_batch(
             ),
         )
 
+    semaphore = asyncio.Semaphore(3)
+
     outcomes = await asyncio.gather(
         *(
-            _analyze_one(index, item)
+            _analyze_one(index, item, semaphore)
             for index, item in enumerate(request.requests)
         )
     )

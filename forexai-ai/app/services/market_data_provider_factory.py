@@ -1,17 +1,19 @@
-"""Single factory for the configured market-data provider.
+"""Single factory for the configured market-data provider + shared cache.
 
 Both construction sites (the LangGraph ``market_data_agent`` and the
-HTTP ``/market-data`` route) previously hardcoded TwelveData. This
-module makes the channel selectable through ``MARKET_DATA_PROVIDER``
-while keeping the original contract: misconfiguration raises a
-``RuntimeError`` with one actionable message, which callers turn into
-503s — never an import-time crash.
+HTTP ``/market-data`` route) previously built their own provider AND their
+own 30-second cache, so the same symbol fetched twice warmed two different
+caches. Phase 2 (SQA): one shared service behind a lock so every caller
+ warms and reads the same entries.
 """
 
 from __future__ import annotations
 
+import threading
+
 from app.broker.mt5_market_data_provider import MT5MarketDataProvider
 from app.config import get_env, market_data_provider_name
+from app.services.market_data_cache import MarketDataCache
 from app.services.market_data_provider import (
     MarketDataProvider,
 )
@@ -84,3 +86,41 @@ def create_market_data_provider() -> MarketDataProvider:
         f"Unknown MARKET_DATA_PROVIDER: {name!r}. "
         "Expected 'twelve' or 'mt5'."
     )
+
+
+_shared_lock = threading.Lock()
+_shared_service = None
+
+
+def get_shared_market_data_service():
+    """Return the process-wide MarketDataService, building it once.
+
+    Both the graph agent and the HTTP route call this instead of building
+    their own provider+cache. A lock guards first construction (two
+    concurrent first-requests build exactly one service). ``lru_cache``
+    does not store exceptions, but an explicit lock makes the single-flight
+    guarantee obvious and keeps a missing-key 503 from racing a second
+    build. Call ``reset_shared_market_data_service`` in tests to rebuild.
+    """
+
+    from app.services.market_data_service import MarketDataService
+
+    global _shared_service
+
+    with _shared_lock:
+        if _shared_service is None:
+            _shared_service = MarketDataService(
+                provider=create_market_data_provider(),
+                cache=MarketDataCache(ttl_seconds=30),
+            )
+
+        return _shared_service
+
+
+def reset_shared_market_data_service() -> None:
+    """Drop the shared instance (tests only — never call in production)."""
+
+    global _shared_service
+
+    with _shared_lock:
+        _shared_service = None

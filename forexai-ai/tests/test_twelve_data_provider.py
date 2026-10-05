@@ -1,5 +1,6 @@
 """Provider boundary tests: every advertised timeframe must survive parsing."""
 
+import httpx
 import pytest
 
 from app.schemas.market import Timeframe
@@ -72,5 +73,45 @@ def test_unknown_timeframe_raises_value_error():
             provider.get_market_data(
                 symbol="EURUSD",
                 timeframe="TwoHours",
+            )
+        )
+
+
+def _provider_with_status(status_code: int) -> TwelveDataMarketDataProvider:
+    # SQA C-03: fake the transport so no network is touched. Any upstream
+    # error status must surface as RuntimeError (the 503 contract), never
+    # as an httpx exception leaking to a 500.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code, json={"status": "error"})
+
+    provider = TwelveDataMarketDataProvider(api_key="dummy", transport=httpx.MockTransport(handler))
+
+    return provider
+
+
+def test_upstream_500_maps_to_runtime_error_for_503_contract():
+    import asyncio
+
+    provider = _provider_with_status(500)
+
+    with pytest.raises(RuntimeError, match="unavailable"):
+        asyncio.run(
+            provider.get_market_data(
+                symbol="EURUSD",
+                timeframe="FifteenMinutes",
+            )
+        )
+
+
+def test_upstream_502_maps_to_runtime_error_for_503_contract():
+    import asyncio
+
+    provider = _provider_with_status(502)
+
+    with pytest.raises(RuntimeError, match="unavailable"):
+        asyncio.run(
+            provider.get_market_data(
+                symbol="EURUSD",
+                timeframe="FifteenMinutes",
             )
         )
