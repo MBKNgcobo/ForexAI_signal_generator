@@ -71,7 +71,12 @@ public sealed class HealthController : ControllerBase
                     _httpClientFactory.CreateClient();
 
                 client.Timeout =
-                    TimeSpan.FromSeconds(3);
+                    // 3 s was too tight for a Render-to-Render call over
+                    // the public internet: DNS, the TLS handshake and the
+                    // edge hop regularly exceed it, so /health/ready
+                    // reported python_ai unhealthy while the service was
+                    // demonstrably up. /ready is not on the hot path.
+                    TimeSpan.FromSeconds(10);
 
                 var healthUrl =
                     new Uri(

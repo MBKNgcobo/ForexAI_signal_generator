@@ -55,13 +55,32 @@ builder.Services.AddOpenApi();
 // PostgreSQL / Entity Framework
 // ============================================================
 
+// Both a missing key and an empty value must fail here.
+//
+// appsettings.json ships "ForexAiDatabase": "" so an unset
+// ConnectionStrings__ForexAiDatabase used to arrive as an empty string,
+// which is NOT null - the old `?? throw` let it through and the failure
+// surfaced much later, at the first query, as an opaque
+// "The ConnectionString property has not been initialized" (or, when the
+// string was malformed, Npgsql trying to parse a URI as key=value).
+// IsNullOrWhiteSpace is the same guard Jwt__Key uses below.
 var connectionString =
     configuration.GetConnectionString(
         "ForexAiDatabase"
-    )
-    ?? throw new InvalidOperationException(
-        "Connection string 'ForexAiDatabase' was not found."
     );
+
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "Connection string 'ForexAiDatabase' is missing or empty. " +
+        "Set ConnectionStrings__ForexAiDatabase to the database " +
+        "connection string - either the key=value form " +
+        "(Host=...;Database=...;Username=...;Password=...;SSL Mode=Require) " +
+        "or a postgresql:// URI. Note that appsettings.json provides an " +
+        "empty default, so leaving the variable unset is not detected by " +
+        "merely reading configuration."
+    );
+}
 
 builder.Services.AddDbContext<ForexAiDbContext>(
     options =>
