@@ -6,6 +6,10 @@ from typing import Any
 import psycopg  # type: ignore[import-not-found]
 from psycopg.rows import dict_row  # type: ignore[import-not-found]
 
+from app.config import (
+    rag_db_hostaddr,
+    rag_db_sslmode,
+)
 from app.fundamentals.models import (
     EconomicObservation,
 )
@@ -36,6 +40,14 @@ class FundamentalRAGStore:
                 "RAG_DB_PASSWORD",
                 "",
             ),
+            # Managed Postgres (Neon) refuses a plaintext handshake, and
+            # libpq's default of "prefer" tries that first and fails with
+            # "connection is insecure (try using sslmode=require)". Set
+            # explicitly so TLS is negotiated on the first attempt.
+            "sslmode": rag_db_sslmode(),
+            # Optional: skip the AAAA records a free-tier host cannot route
+            # to. None lets psycopg resolve normally.
+            "hostaddr": rag_db_hostaddr(),
         }
 
     def _connect(self):

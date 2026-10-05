@@ -266,6 +266,39 @@ def webhook_timeout_seconds() -> float:
 # to sum to 1 - ``EnsembleQuantModel`` normalises them.
 # ---------------------------------------------------------------------------
 
+DEFAULT_RAG_DB_SSLMODE = "require"
+
+
+@lru_cache(maxsize=1)
+def rag_db_sslmode() -> str:
+    """TLS mode for the fundamentals RAG store (``RAG_DB_SSLMODE``).
+
+    Defaults to "require" because every deployment that matters connects to
+    a managed database across a network that refuses plaintext. libpq's
+    default is "prefer", which attempts an unencrypted handshake first and is
+    rejected by Neon with "connection is insecure (try using
+    sslmode=require)". A local ``docker compose`` Postgres has no such
+    requirement, so the value stays overridable and can be set to "disable"
+    there rather than weakening the default everywhere.
+    """
+    return (
+        get_env("RAG_DB_SSLMODE", DEFAULT_RAG_DB_SSLMODE)
+        or DEFAULT_RAG_DB_SSLMODE
+    )
+
+
+@lru_cache(maxsize=1)
+def rag_db_hostaddr() -> str | None:
+    """Optional pinned IP for the RAG store (``RAG_DB_HOSTADDR``).
+
+    Managed providers usually publish AAAA records alongside A records.
+    Free-tier hosts have no IPv6 route, so psycopg walks the unreachable
+    addresses first and only succeeds over IPv4, delaying every cold start.
+    Pinning one address skips that. Unset by default so DNS stays in charge.
+    """
+    return get_env("RAG_DB_HOSTADDR", "") or None
+
+
 DEFAULT_ENSEMBLE_MODELS = (
     "random_forest",
     "xgboost",
