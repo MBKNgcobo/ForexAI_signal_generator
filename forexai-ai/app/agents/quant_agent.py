@@ -6,7 +6,10 @@ from typing import Any
 
 import pandas as pd
 
-from app.config import ensemble_models, ensemble_weights
+from app.config import (
+    ensemble_models,
+    ensemble_weights,
+)
 
 from app.models.ensemble_quant_model import (
     EnsembleQuantModel,

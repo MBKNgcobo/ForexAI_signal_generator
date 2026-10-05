@@ -313,6 +313,47 @@ DEFAULT_ENSEMBLE_WEIGHTS = {
 }
 
 
+DEFAULT_QUANT_PROBABILITY_THRESHOLD = 0.50
+
+
+@lru_cache(maxsize=1)
+def quant_threshold() -> float:
+    """Minimum quant probability for LOW risk and the opposing-quant veto.
+
+    ``QUANT_PROBABILITY_THRESHOLD`` overrides the default. Validation
+    (EURUSD 15m, 113 days) is the basis: 0.60 admitted ~0.7 candidates/day
+    with a negative net; 0.50 admitted ~5.9/day with the only profitable
+    net. Out-of-range or malformed values fall back to the default so a
+    typo can never silently disable the veto (0.0) or block every trade
+    (1.0+).
+    """
+
+    raw = get_env("QUANT_PROBABILITY_THRESHOLD")
+
+    if raw is None:
+        return DEFAULT_QUANT_PROBABILITY_THRESHOLD
+
+    try:
+        parsed = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid QUANT_PROBABILITY_THRESHOLD=%r, using %.2f",
+            raw,
+            DEFAULT_QUANT_PROBABILITY_THRESHOLD,
+        )
+        return DEFAULT_QUANT_PROBABILITY_THRESHOLD
+
+    if not 0.0 < parsed < 1.0:
+        logger.warning(
+            "Ignoring out-of-range QUANT_PROBABILITY_THRESHOLD=%r, using %.2f",
+            raw,
+            DEFAULT_QUANT_PROBABILITY_THRESHOLD,
+        )
+        return DEFAULT_QUANT_PROBABILITY_THRESHOLD
+
+    return parsed
+
+
 @lru_cache(maxsize=1)
 def ensemble_models() -> tuple[str, ...]:
     """Names of the quant models to load, in order.

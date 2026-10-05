@@ -202,8 +202,17 @@ after a quiet period waits ~50 s for a cold start. UptimeRobot (free, 5-minute
 interval) prevents that:
 
 1. UptimeRobot → **Add New Monitor** → HTTP(s).
-2. Add `https://forexai-dashboard.onrender.com/health` and
-   `https://forexai-python-ai.onrender.com/ready`, interval 5 minutes.
+2. Add `https://forexai-dashboard.onrender.com/health`,
+   `https://forexai-python-ai.onrender.com/ready` **and**
+   `https://forexai-csharp-api.onrender.com/health`, interval 5 minutes.
+
+> The gateway must be monitored too. If only the dashboard and Python service
+> are kept warm, the `.NET` API can still spin down after ~15 min idle, and
+> the dashboard's `/api` proxy then gets a 503 from Render's edge while it
+> cold-starts. To a client that is exactly "analysis failed". The gateway also
+> retries a cold-start 503 once before reporting it (see
+> `RetryDelegatingHandler`), so a monitor plus the retry together keep the
+> first request after a quiet period from failing.
 
 Neon also auto-suspends after ~5 minutes idle; the first request afterwards is
 1–3 s slower. Harmless.

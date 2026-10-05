@@ -22,13 +22,50 @@ public class MarketDataController : ControllerBase
         [FromQuery] int limit = 100,
         CancellationToken cancellationToken = default)
     {
-        var result =
-            await _marketDataService.ExecuteAsync(
-                symbol,
-                timeframe,
-                limit,
-                cancellationToken);
+        try
+        {
+            var result =
+                await _marketDataService.ExecuteAsync(
+                    symbol,
+                    timeframe,
+                    limit,
+                    cancellationToken);
 
-        return Ok(result);
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (HttpRequestException ex)
+        {
+            // A 4xx from the Python service is a client error; only 5xx /
+            // connection failures (incl. a free-tier cold start) are 503.
+            if (ex.StatusCode is not null &&
+                (int)ex.StatusCode >= 400 &&
+                (int)ex.StatusCode < 500)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                new { message = ex.Message });
+        }
+        catch (TaskCanceledException)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                new
+                {
+                    message =
+                        "The market-data request timed out. Please retry shortly."
+                });
+        }
     }
 }

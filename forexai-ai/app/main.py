@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from time import perf_counter
 from uuid import uuid4
@@ -12,6 +13,7 @@ from app.api.market_data import router as market_data_router
 from app.config import (
     configure_logging,
     cors_origins,
+    get_env,
     log_configuration_status,
     missing_configuration,
 )
@@ -20,6 +22,50 @@ from app.observability.metrics import (
     HTTP_REQUEST_DURATION_SECONDS,
     HTTP_REQUESTS_TOTAL,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _prewarm() -> None:
+    """Best-effort warm-up so the first real analysis does not pay the one-time
+    cost of loading the quant ensemble and the shared market-data service.
+
+    Gated by ``PREWARM_QUANT=true`` (set in the Dockerfile) so the hosted image
+    warms on boot while the hermetic test suite keeps running cold and fast.
+    Every failure is logged and swallowed: pre-warming must never block or
+    break startup. The RAG/fundamental store is deliberately not pre-warmed
+    here - connecting to Postgres at boot would make startup depend on the
+    database.
+    """
+
+    if (get_env("PREWARM_QUANT", "false") or "false").lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return
+
+    from app.agents.quant_agent import get_quant_model
+    from app.services.market_data_provider_factory import (
+        get_shared_market_data_service,
+    )
+
+    for name, build in (
+        ("quant ensemble", get_quant_model),
+        ("market-data service", get_shared_market_data_service),
+    ):
+        try:
+            build()
+        except Exception as exc:
+            logger.warning(
+                "Pre-warm of %s failed (non-fatal): %s: %s",
+                name,
+                type(exc).__name__,
+                exc,
+            )
+        else:
+            logger.info("Pre-warmed %s.", name)
 
 
 @asynccontextmanager
@@ -34,6 +80,7 @@ async def lifespan(app: FastAPI):
 
     configure_logging()
     log_configuration_status()
+    _prewarm()
 
     yield
 

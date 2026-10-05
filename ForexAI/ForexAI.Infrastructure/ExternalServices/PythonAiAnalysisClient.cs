@@ -31,11 +31,17 @@ public sealed class PythonAiAnalysisClient
 
         if (!response.IsSuccessStatusCode)
         {
+            // Attach the upstream status so the controller can tell a client
+            // error (4xx, e.g. an unsupported symbol) from a service failure
+            // (5xx / unavailable) instead of blanket-mapping every failure to
+            // 503 for the dashboard.
             throw new HttpRequestException(
                 $"Python AI service returned " +
                 $"{(int)response.StatusCode} " +
                 $"{response.StatusCode}: " +
-                responseBody);
+                responseBody,
+                inner: null,
+                statusCode: response.StatusCode);
         }
 
         var result =

@@ -243,4 +243,22 @@ public class PythonAiAnalysisClientTests
         await Assert.ThrowsAsync<HttpRequestException>(
             () => client.AnalyzeAsync(Request()));
     }
+
+    [Fact]
+    public async Task AnalyzeAsync_ThrowsWithTheUpstreamStatusCode()
+    {
+        // Arrange: the gateway must carry the upstream status so the
+        // controller can map a Python 4xx (e.g. an unsupported symbol) to a
+        // 400 for the dashboard instead of a blanket 503.
+        var (client, _) = Build(
+            HttpStatusCode.Unauthorized,
+            """{"detail":"A valid X-API-Key header is required."}""",
+            null);
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.AnalyzeAsync(Request()));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, ex.StatusCode);
+    }
 }

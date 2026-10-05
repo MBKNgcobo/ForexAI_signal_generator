@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.config import quant_threshold
+
 
 # ------------------------------------------------------------------
 # Trading parameters
@@ -22,8 +24,12 @@ TAKE_PROFIT_ATR_MULTIPLIER = 1.5
 # ------------------------------------------------------------------
 # Quant model policy
 #
-# These are application rules, not claims about future profitability.
-# They can be tuned later using validation data.
+# ``STRONG_QUANT_PROBABILITY`` is the bar for LOW risk and for the
+# opposing-quant veto. Validation (113 days, EURUSD 15m) showed 0.60 admits
+# ~0.7 engine candidates/day and a negative net, while 0.50 admits ~5.9/day
+# with the only profitable net (+0.0471, PF 1.31). Tunable via
+# ``QUANT_PROBABILITY_THRESHOLD`` (default 0.50); see ``quant_threshold()``
+# in app/config.py. Gate majority logic is unchanged.
 # ------------------------------------------------------------------
 
 MIN_QUANT_PROBABILITY = 0.50
@@ -239,11 +245,18 @@ def run_risk_agent(
 
     # --------------------------------------------------------------
     # Determine whether the Quant Agent provides strong support.
+    #
+    # The bar is QUANT_PROBABILITY_THRESHOLD (default 0.50, validated on
+    # EURUSD 15m): 0.60 admitted ~0.7 candidates/day with a negative net,
+    # while 0.50 admitted ~5.9/day with the only profitable net. Majority
+    # logic below is unchanged.
     # --------------------------------------------------------------
+
+    quant_bar = quant_threshold()
 
     quant_has_strong_confidence = (
         dominant_quant_probability
-        >= STRONG_QUANT_PROBABILITY
+        >= quant_bar
     )
 
     # --------------------------------------------------------------

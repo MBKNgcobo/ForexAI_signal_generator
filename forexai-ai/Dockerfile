@@ -3,7 +3,8 @@ FROM python:3.14-slim
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PREWARM_QUANT=true
 
 # requirements.txt is copied on its own and installed before any other build
 # step so this (slow) layer stays cached while the source changes.

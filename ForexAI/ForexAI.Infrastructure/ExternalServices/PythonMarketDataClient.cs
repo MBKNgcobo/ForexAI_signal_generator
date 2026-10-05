@@ -34,10 +34,14 @@ public sealed class PythonMarketDataClient : IMarketDataClient
 
         if (!response.IsSuccessStatusCode)
         {
+            // Attach the upstream status so the controller can distinguish a
+            // client error (400/422) from a service outage (5xx).
             throw new HttpRequestException(
                 $"Python market-data service returned " +
                 $"{(int)response.StatusCode} " +
-                $"{response.StatusCode}: {responseBody}");
+                $"{response.StatusCode}: {responseBody}",
+                inner: null,
+                statusCode: response.StatusCode);
         }
 
         var result =
