@@ -43,6 +43,61 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
+      # Catch missing or malformed configuration in ~2 seconds instead of
+      # after a full build. Each of the guards below mirrors a check that
+      # Program.cs performs at startup, so a failure here names the variable
+      # rather than surfacing as an Npgsql or JWT exception much later.
+      - name: Validate configuration
+        env:
+          NEON_CONNECTION_STRING: ${{ secrets.NEON_CONNECTION_STRING }}
+          JWT_KEY: ${{ secrets.JWT_KEY }}
+        run: |
+          status=0
+
+          if [ -z "$NEON_CONNECTION_STRING" ]; then
+            echo "::error::NEON_CONNECTION_STRING secret is empty or missing. Add it under Settings -> Secrets and variables -> Actions."
+            status=1
+          else
+            # Npgsql accepts a key=value string or a postgresql:// URI.
+            # Testing for '=' alone is not enough: a URI missing its scheme
+            # ("ep-x-pooler.../forexai?sslmode=require") also contains an
+            # '=' inside the query string and would be mistaken for
+            # key=value. So for the key=value branch the part before the
+            # first '=' must actually look like a keyword.
+            case "$NEON_CONNECTION_STRING" in
+              *://*)
+                echo "NEON_CONNECTION_STRING: URI form detected."
+                ;;
+              *=*)
+                key="${NEON_CONNECTION_STRING%%=*}"
+                case "$key" in
+                  *[!A-Za-z0-9_]*)
+                    echo "::error::NEON_CONNECTION_STRING looks like a URI with no scheme. Prefix it with postgresql:// or use key=value (Host=...;Database=...;Username=...;Password=...;SSL Mode=Require)"
+                    status=1
+                    ;;
+                  *)
+                    echo "NEON_CONNECTION_STRING: key=value form detected."
+                    ;;
+                esac
+                ;;
+              *)
+                echo "::error::NEON_CONNECTION_STRING is neither key=value nor a URI. Use Host=...;Database=...;Username=...;Password=...;SSL Mode=Require"
+                status=1
+                ;;
+            esac
+          fi
+
+          if [ -z "$JWT_KEY" ]; then
+            echo "::error::JWT_KEY secret is empty or missing. It must be the same value Render generated for csharp-api."
+            status=1
+          elif [ ${#JWT_KEY} -lt 32 ]; then
+            # Program.cs rejects keys under 32 bytes.
+            echo "::error::JWT_KEY is ${#JWT_KEY} chars; at least 32 are required."
+            status=1
+          fi
+
+          exit $status
+
       - name: Apply migrations
         working-directory: ForexAI
         env:
@@ -55,7 +110,12 @@ jobs:
           # never dialled; it is set only to satisfy startup validation.
           PythonApi__BaseUrl: http://127.0.0.1:8000
         run: |
+          # --no-launch-profile stops `dotnet run` from loading
+          # Properties/launchSettings.json, whose default profile forces
+          # ASPNETCORE_ENVIRONMENT=Development and would silently override
+          # the Production setting above.
           dotnet run \
+            --no-launch-profile \
             --project ForexAI.Api/ForexAI.Api.csproj \
             --configuration Release \
             -- --migrate
