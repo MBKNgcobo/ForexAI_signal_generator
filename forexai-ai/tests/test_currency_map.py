@@ -33,3 +33,29 @@ def test_country_lookup_is_case_insensitive():
 def test_country_lookup_rejects_unknown_currency():
     with pytest.raises(ValueError):
         country_for_currency("XYZ")
+
+
+def test_split_accepts_every_seeded_pair():
+    """Every pair in the dashboard's picker must survive this parser.
+
+    The picker is populated from forex_pairs, which is seeded by
+    ForexPairConfiguration, while this map decides which symbols the
+    analysis endpoint accepts. A pair present in one and missing from the
+    other would be listed in the UI and then fail with a 400 on selection,
+    so the two lists are pinned together here.
+    """
+
+    seeded_pairs = [
+        "AUDJPY", "AUDUSD", "EURCHF", "EURGBP", "EURJPY", "EURUSD",
+        "EURZAR", "GBPJPY", "GBPUSD", "NZDUSD", "USDCAD", "USDCHF",
+        "USDJPY", "USDZAR",
+    ]
+
+    for symbol in seeded_pairs:
+        base, quote = split_forex_symbol(symbol)
+        assert f"{base}{quote}" == symbol
+
+
+def test_country_lookup_covers_zrand_nzd():
+    assert country_for_currency("ZAR") == "ZAF"
+    assert country_for_currency("NZD") == "NZL"

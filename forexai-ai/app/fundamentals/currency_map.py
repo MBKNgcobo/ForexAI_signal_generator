@@ -6,16 +6,8 @@ CURRENCY_TO_COUNTRY = {
     "CHF": "CHE",
     "CAD": "CAN",
     "AUD": "AUS",
-}
-
-
-SUPPORTED_PAIRS = {
-    "AUDUSD",
-    "EURUSD",
-    "GBPUSD",
-    "USDCAD",
-    "USDCHF",
-    "USDJPY",
+    "NZD": "NZL",
+    "ZAR": "ZAF",
 }
 
 
