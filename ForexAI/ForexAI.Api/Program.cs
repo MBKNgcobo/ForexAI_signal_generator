@@ -351,10 +351,7 @@ builder.Services.AddHttpClient<
                 "X-API-Key",
                 pythonApiKey);
         }
-    })
-    // Survive a free-tier cold start or a transient provider 5xx instead of
-    // failing the client's first analyse after an idle period.
-    .AddHttpMessageHandler<RetryDelegatingHandler>();
+    });
 
 
 builder.Services.AddHttpClient<
@@ -371,10 +368,7 @@ builder.Services.AddHttpClient<
                 "X-API-Key",
                 pythonApiKey);
         }
-    })
-    // Same resilience as the analysis client: retry a cold-start edge 503
-    // or a transient provider 5xx before surfacing it to the dashboard.
-    .AddHttpMessageHandler<RetryDelegatingHandler>();
+    });
 
 
 // ============================================================

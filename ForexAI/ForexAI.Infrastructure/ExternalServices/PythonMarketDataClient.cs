@@ -1,5 +1,4 @@
-﻿using System.Net.Http.Json;
-using ForexAI.Application.Contracts.MarketData;
+﻿using ForexAI.Application.Contracts.MarketData;
 using ForexAI.Application.Interfaces;
 
 namespace ForexAI.Infrastructure.ExternalServices;
@@ -24,41 +23,67 @@ public sealed class PythonMarketDataClient : IMarketDataClient
             $"?timeframe={Uri.EscapeDataString(timeframe)}" +
             $"&limit={limit}";
 
-        var response = await _httpClient.GetAsync(
-            url,
-            cancellationToken);
-
-        var responseBody =
-            await response.Content.ReadAsStringAsync(
-                cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
+        // Retry a transient 5xx (a free-tier cold-start edge 503 or a provider
+        // outage) and a connection/timeout. Each attempt issues a *fresh*
+        // HttpRequestMessage via GetAsync, so the single-use restriction never
+        // applies. A 4xx is reported immediately (client error).
+        for (var attempt = 1; ; attempt++)
         {
-            // Attach the upstream status so the controller can distinguish a
-            // client error (400/422) from a service outage (5xx).
-            throw new HttpRequestException(
-                $"Python market-data service returned " +
-                $"{(int)response.StatusCode} " +
-                $"{response.StatusCode}: {responseBody}",
-                inner: null,
-                statusCode: response.StatusCode);
-        }
+            try
+            {
+                var response = await _httpClient.GetAsync(
+                    url,
+                    cancellationToken);
 
-        var result =
-            System.Text.Json.JsonSerializer
-                .Deserialize<MarketDataResponse>(
-                    responseBody,
-                    new System.Text.Json.JsonSerializerOptions
+                var responseBody =
+                    await response.Content.ReadAsStringAsync(
+                        cancellationToken);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    if (attempt < GatewayRetry.MaxAttempts &&
+                        (int)response.StatusCode >= 500)
                     {
-                        PropertyNameCaseInsensitive = true
-                    });
+                        await Task.Delay(
+                            GatewayRetry.Backoff(attempt),
+                            cancellationToken);
+                        continue;
+                    }
 
-        if (result is null)
-        {
-            throw new InvalidOperationException(
-                "Python market-data service returned an empty response.");
+                    throw new HttpRequestException(
+                        $"Python market-data service returned " +
+                        $"{(int)response.StatusCode} " +
+                        $"{response.StatusCode}: {responseBody}",
+                        inner: null,
+                        statusCode: response.StatusCode);
+                }
+
+                var result =
+                    System.Text.Json.JsonSerializer
+                        .Deserialize<MarketDataResponse>(
+                            responseBody,
+                            new System.Text.Json.JsonSerializerOptions
+                            {
+                                PropertyNameCaseInsensitive = true
+                            });
+
+                if (result is null)
+                {
+                    throw new InvalidOperationException(
+                        "Python market-data service returned an empty response.");
+                }
+
+                return result;
+            }
+            catch (Exception ex) when (
+                attempt < GatewayRetry.MaxAttempts &&
+                !cancellationToken.IsCancellationRequested &&
+                GatewayRetry.IsRetryable(ex))
+            {
+                await Task.Delay(
+                    GatewayRetry.Backoff(attempt),
+                    cancellationToken);
+            }
         }
-
-        return result;
     }
 }
