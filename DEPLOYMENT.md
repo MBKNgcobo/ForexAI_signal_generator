@@ -110,16 +110,41 @@ Get-ChildItem *_full.joblib, calibration.json | ForEach-Object {
 ## 2. Create the Neon database
 
 1. Neon → **Create project** → name `forexai` → Postgres.
-2. Keep the default branch. Copy the **pooler** connection string — it looks
-   like `postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/forexai?sslmode=require`.
-   Use the pooler host (not the direct one): Render's free instances churn IPs.
+2. Keep the default branch.
 
-You need the same database for two services, set separately:
+### Copy the *pooled* connection string
 
-| Service | Variables |
-| --- | --- |
-| `forexai-csharp-api` | `ConnectionStrings__ForexAiDatabase` = the full connection string |
-| `forexai-python-ai` | `RAG_DB_HOST` / `RAG_DB_PORT` / `RAG_DB_NAME` / `RAG_DB_USER` / `RAG_DB_PASSWORD` |
+Neon → your project → **Connect** → choose **Pooled connection** (not
+"Direct connection") → Database `forexai`. The URI looks like:
+
+```
+postgresql://USER:PASSWORD@ep-xxx-pooler.region.aws.neon.tech/forexai?sslmode=require
+```
+
+> ⚠️ **The `-pooler` suffix is not optional.** Render's free instances are
+> IPv6-only and cannot reach Neon's direct endpoint at all, so the direct
+> host will fail to resolve. If a hostname "does not exist" on Render, check
+> this suffix first.
+
+Both services read the same database through **different variables**, and
+each variable must hold **its own field** — putting the username in the
+database field produces `database "<username>" does not exist`.
+
+| Service | Variable | Value |
+| --- | --- | --- |
+| `forexai-csharp-api` | `ConnectionStrings__ForexAiDatabase` | the full URI (key=value form also works) |
+| `forexai-python-ai` | `RAG_DB_HOST` | `ep-xxx-pooler.region.aws.neon.tech` |
+| | `RAG_DB_PORT` | `5432` |
+| | `RAG_DB_NAME` | `forexai` — **the database**, not the user |
+| | `RAG_DB_USER` | the user from the URI |
+| | `RAG_DB_PASSWORD` | the password, **decoded** (not URL-encoded) |
+
+> **TLS is handled for you on both paths.** The Python service sets
+> `sslmode=require` in code (`RAG_DB_SSLMODE`, default `require`), so no
+> `sslmode` value is needed in any `RAG_DB_*` variable. The .NET side takes
+> the URI as-is. Both are required for Neon, which refuses a plaintext
+> handshake — if you ever see `connection is insecure (try using
+> sslmode=require)` from a hosted service, that guarantee has been bypassed.
 
 ---
 
@@ -252,6 +277,17 @@ curl.exe -X POST https://forexai-csharp-api.onrender.com/api/analysis `
 | Build fails with `HTTP 404 ... MODEL_ARTIFACTS_BASE_URL` | No `models-v1` release assets yet | Step 1 of this guide |
 | `Webhook delivery skipped: host not in WEBHOOK_ALLOWLIST` | Wrong tunnel host or unset allowlist | Keep `.trycloudflare.com`; check the URL you pasted |
 | Bridge answers `401` | Missing/incorrect `?token=` | Use the same `BRIDGE_TOKEN` you started the bridge with |
+| `502` on proxied paths that are otherwise healthy | A proxied `location` missing `proxy_ssl_server_name on;` | Send SNI on every `https://` upstream; `test_dashboard_nginx.py` enforces this |
+| Every `/api/*` call returns `508` / `x-render-routing: loop` | A proxied `location` forwards the *dashboard's* `Host`; Render's edge routes by `Host` and sends it back | Use `proxy_set_header Host $proxy_host;` so the edge routes to the API |
+| nginx logs `499` and the deploy never goes healthy | `/health` proxied to another service, so the probe had to wake a free-tier instance and Render gave up first | Serve `/health` locally; a liveness probe must not depend on a downstream |
+| Dashboard restarts every ~60 s (`Detected a new open port`) | `listen 80` while Render injects `PORT` (10000) | `listen ${PORT}`, with `ENV PORT=80` in the dashboard Dockerfile |
+| `GET /api/ForexPairs` returns `[]` and the picker is empty | Migrations created `forex_pairs` but nothing ever inserted a row | The pairs are seeded via EF `HasData`; re-run the migration workflow after pulling |
+| A pair in the picker `400`s when selected | The picker (database) and the Python currency map are separate lists | Add the currency to `app/fundamentals/currency_map.py`; a test keeps the two in sync |
+| `psycopg` error naming host `postgres` | `RAG_DB_HOST` still holds the Docker Compose *service name* | Set it to the Neon **pooler** host |
+| `database "<username>" does not exist` | `RAG_DB_NAME` holds the username | Set `RAG_DB_NAME=forexai` — the database name, one field per variable |
+| `password authentication failed` from psycopg | `RAG_DB_USER` / `RAG_DB_PASSWORD` hold the Compose values | Copy the Neon user and decoded password from the connection details |
+| `connection is insecure (try using sslmode=require)` | The RAG store connected without TLS | The service sets `sslmode=require` itself; check nothing overrides `RAG_DB_SSLMODE` |
+| Migration workflow fails after a full build | A secret was empty or malformed | The workflow now preflights in ~2 s and names the variable; check `NEON_CONNECTION_STRING` and `JWT_KEY` (≥32 bytes) |
 | `503` from `/analysis` on a hosted service | Missing `OPENROUTER_API_KEY` / `TWELVE_DATA_API_KEY` | `/ready` names the missing variable |
 | Dashboard blank, `/api` 502 | `CSHARP_API_URL` wrong, or csharp-api still building | Point it at `https://forexai-csharp-api.onrender.com` |
 | First request slow (~50 s) | Free service spun down | UptimeRobot monitor (step 4) |
@@ -280,7 +316,7 @@ Run the gates before pushing:
 ```powershell
 cd forexai-ai
 python -m ruff check app tests scripts
-python -m pytest -q                      # 285 tests
+python -m pytest -q                      # 331 tests
 python scripts/check_mt5_market_data.py # local MT5 smoke test
 
 cd ..\ForexAI

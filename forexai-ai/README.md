@@ -9,7 +9,7 @@
 ![CI](https://github.com/MBKNgcobo/ForexAI_signal_generator/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.14-blue?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-150%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-331%20passing-brightgreen)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)
 
 [Features](#features) · [Architecture](#architecture) · [API](#api) · [Quick start](#quick-start) · [Tests](#tests)
@@ -39,7 +39,7 @@ credentials, validates at the HTTP boundary, distinguishes *client error* from
 - **Validation at the boundary** — malformed symbols, timeframes and limits return `422` *before* any paid LLM or provider work happens (previously they surfaced as `500`s mid-flight).
 - **Typed error mapping** — `400` unsupported pair · `401` bad API key · `422` bad input · `502` unusable LLM output · `503` degraded dependency.
 - **Provider-agnostic LLM layer** — OpenRouter (with fallback models), OpenAI or any HTTP endpoint, behind one factory with a typed retry/error taxonomy.
-- **Hermetic test suite** — 150 tests, zero network access: market data, the LLM and the database are all faked.
+- **Hermetic test suite** — 331 tests, zero network access: market data, the LLM and the database are all faked.
 - **Secure defaults** — optional `X-API-Key` guard, conditional CORS, non-root Docker image, health-check, secrets excluded from git *and* image layers.
 
 <a id="architecture"></a>
@@ -183,7 +183,7 @@ Never commit `.env` — it is ignored by `.gitignore` and `.dockerignore`.
 ## Tests
 
 ```powershell
-python -m pytest -q                 # 150 passed
+python -m pytest -q                 # 331 passed
 python -m pytest -q --cov=app       # with a coverage report
 ruff check app tests                # lint gate
 
@@ -241,7 +241,7 @@ app/
   schemas/       pydantic request/response contracts
   services/      Twelve Data provider, TTL cache, indicators, response mapper
 scripts/         manual data & ensemble checks (not collected by pytest)
-tests/           150-test hermetic suite + fakes
+tests/           331-test hermetic suite + fakes
   observability/ request IDs, JSON log formatter, Prometheus metrics
 .github/         CI workflow (ruff + pytest on every push / PR)
 requirements-dev.txt  dev & CI tooling (ruff, pytest-cov)
@@ -259,7 +259,45 @@ requirements-dev.txt  dev & CI tooling (ruff, pytest-cov)
 | Canonical `FEATURE_COLUMNS` / `CLASS_NAMES` modules | Training and inference previously drifted across four duplicated copies. |
 | Non-root image, no `.env` in image layers | Secrets belong in runtime env vars, never in image history. |
 | Dev tooling isolated in `requirements-dev.txt` | The shipped image installs only `requirements.txt`, so `ruff`/`pytest-cov` never reach production. |
-| Separate `/health` (liveness) and `/ready` (readiness) | Fail-soft startup keeps the process alive without credentials, so orchestrators need a way to hold traffic until config is present. |
+| Separate `/health` (liveness) and `/ready` (readiness) | Fail-soft startup keeps the process alive without credentials, so orchestrators need a way to hold traffic until config is present. Note its limit: `/ready` checks that variables are *set*, not that they *work* — see Lessons below. |
+| Seeded data via EF `HasData`, not a startup seeder | Schema and reference data stay versioned together; the rows replay in `Up` and are removed in `Down`, so a fresh database is correct by construction. |
+| `sslmode=require` by default, overridable | Managed Postgres refuses a plaintext handshake and libpq defaults to `prefer`, but a local `docker compose` Postgres has no such need — so the default is strong and the override explicit. |
+
+## Lessons from the Render deployment
+
+The first production deploy surfaced a set of failures that all looked
+different and shared one theme: **each was invisible to the check that was
+supposed to catch it.** The symptom is the useful part of this list; the
+cause is what to look for next time.
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Deploy never goes healthy; nginx logs `499` with `0` bytes sent | `location /health` proxied to the API, so Render's probe had to wake a free-tier service first. The client gave up before nginx could answer, and nginx logs the client's abort instead of a status. | Serve `/health` locally. A liveness probe may not depend on a downstream service. |
+| Every `/api/*` call returns `508 Loop Detected`, header `x-render-routing: loop` | `proxy_set_header Host $host` forwarded the *dashboard's* hostname to the API. Render's edge routes by `Host`, so the request was sent back to the dashboard, which proxied it again. | `proxy_set_header Host $proxy_host`. Neither Render nor nginx counts hops — only Cloudflare's loop detector stopped it. |
+| `502` on proxied paths that are otherwise healthy | A proxied location missing `proxy_ssl_server_name on;`; the edge answers an SNI-less ClientHello with alert 40. | Send SNI on every `https://` upstream. |
+| Service restarts roughly every 60 s, `Detected a new open port` each time | `listen 80` while Render injects `PORT` (10000), so it kept re-probing for a port it could not predict. | `listen ${PORT}`, plus `ENV PORT=80` in the Dockerfile so the envsubst placeholder is never empty locally. |
+| `The ConnectionString property has not been initialized` | `?? throw` only catches `null`. `appsettings.json` ships `""`, so an unset variable passed startup validation and failed much later, at the first query. | `string.IsNullOrWhiteSpace` — the guard `Jwt__Key` already used a few lines above. |
+| Three CI runs in a row, each failing after a full build | Configuration was only validated at startup, i.e. after the slow part. | A preflight step in `db-migrate.yml` that names the failing variable in ~2 s. |
+| `GET /api/ForexPairs` returns `200 []` and the picker is empty | Migrations created the table; nothing ever inserted a row. There was no `HasData` anywhere in the project. | Seed the tradable pairs via `HasData`, pinned by a test. |
+| A seeded pair appears in the picker, then `400`s on selection | The picker (database) and `split_forex_symbol` (currency map) are separate lists. A symbol in one and not the other is a UI that promises something the API rejects. | Keep both lists in sync, and test that every seeded pair parses. |
+| `503` "Python AI service returned 500" while market data returns `200` | The RAG store connected with no `sslmode`; libpq defaults to `prefer` and Neon refuses a plaintext handshake. | Set `sslmode=require` explicitly, overridable for local compose. |
+| `psycopg` errors naming `postgres`, or `database "<username>" does not exist` | Docker Compose values were pasted into Render. `postgres` is a compose *service name*, not a host; and two `RAG_DB_*` variables ended up holding the same value. | Set the Neon values per service, one field per variable. |
+
+Three habits that resolved nearly all of these:
+
+1. **Read the stack trace, not the status code.** `500` said nothing;
+   `connection is insecure (try using sslmode=require)` said everything.
+2. **Reproduce the call directly.** A `curl` against the exact path separates
+   a proxy problem from a service problem in one round trip — `401` from the
+   upstream means the key is wrong, `508` means routing is wrong.
+3. **Expect health checks to be too optimistic.** `/ready` returned `200`
+   through four consecutive database failures, because it checked that
+   variables *existed* and not that they *worked*. A probe that cannot fail is
+   not a probe.
+
+> Connecting to a managed database can also take ~30 s to fail while the
+> client walks unreachable IPv6 addresses. That latency is a symptom of the
+> same misconfiguration, not a second problem.
 
 ## Roadmap
 
