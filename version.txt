@@ -1,0 +1,7 @@
+ForexAI v1.0.0
+Built: 2026-10-06
+Git: see release notes
+Stack: postgres:17 + python-ai + csharp-api (non-root) + dashboard (nginx)
+Compose project: forexai
+Entry: start.bat -> http://localhost (DASHBOARD_PORT, default 80)
+Docs: START_HERE.txt, README_CLIENT.md, docs/

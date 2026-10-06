@@ -13,26 +13,32 @@ namespace ForexAI.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.InsertData(
-                table: "forex_pairs",
-                columns: new[] { "Id", "BaseCurrency", "IsActive", "QuoteCurrency", "Symbol" },
-                values: new object[,]
-                {
-                    { new Guid("a1b2c3d4-0001-4000-8000-000000000001"), "AUD", true, "USD", "AUDUSD" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-000000000002"), "AUD", true, "JPY", "AUDJPY" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-000000000003"), "EUR", true, "GBP", "EURGBP" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-000000000004"), "EUR", true, "JPY", "EURJPY" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-000000000005"), "EUR", true, "USD", "EURUSD" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-000000000006"), "EUR", true, "ZAR", "EURZAR" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-000000000007"), "GBP", true, "JPY", "GBPJPY" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-000000000008"), "GBP", true, "USD", "GBPUSD" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-000000000009"), "NZD", true, "USD", "NZDUSD" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-00000000000a"), "USD", true, "CAD", "USDCAD" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-00000000000b"), "USD", true, "CHF", "USDCHF" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-00000000000c"), "USD", true, "JPY", "USDJPY" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-00000000000d"), "USD", true, "ZAR", "USDZAR" },
-                    { new Guid("a1b2c3d4-0001-4000-8000-00000000000e"), "EUR", true, "CHF", "EURCHF" }
-                });
+            // Idempotent seed: databases that already contain some of these
+            // pairs (installed before this migration existed) keep their
+            // existing rows - including the original primary keys - while
+            // empty databases get the full list. ON CONFLICT DO NOTHING
+            // without a target covers both the primary key and the unique
+            // index on "Symbol". A plain InsertData here made every
+            // already-installed database fail with 23505 on first boot.
+            migrationBuilder.Sql("""
+                INSERT INTO forex_pairs ("Id", "BaseCurrency", "IsActive", "QuoteCurrency", "Symbol")
+                VALUES
+                    ('a1b2c3d4-0001-4000-8000-000000000001', 'AUD', TRUE, 'USD', 'AUDUSD'),
+                    ('a1b2c3d4-0001-4000-8000-000000000002', 'AUD', TRUE, 'JPY', 'AUDJPY'),
+                    ('a1b2c3d4-0001-4000-8000-000000000003', 'EUR', TRUE, 'GBP', 'EURGBP'),
+                    ('a1b2c3d4-0001-4000-8000-000000000004', 'EUR', TRUE, 'JPY', 'EURJPY'),
+                    ('a1b2c3d4-0001-4000-8000-000000000005', 'EUR', TRUE, 'USD', 'EURUSD'),
+                    ('a1b2c3d4-0001-4000-8000-000000000006', 'EUR', TRUE, 'ZAR', 'EURZAR'),
+                    ('a1b2c3d4-0001-4000-8000-000000000007', 'GBP', TRUE, 'JPY', 'GBPJPY'),
+                    ('a1b2c3d4-0001-4000-8000-000000000008', 'GBP', TRUE, 'USD', 'GBPUSD'),
+                    ('a1b2c3d4-0001-4000-8000-000000000009', 'NZD', TRUE, 'USD', 'NZDUSD'),
+                    ('a1b2c3d4-0001-4000-8000-00000000000a', 'USD', TRUE, 'CAD', 'USDCAD'),
+                    ('a1b2c3d4-0001-4000-8000-00000000000b', 'USD', TRUE, 'CHF', 'USDCHF'),
+                    ('a1b2c3d4-0001-4000-8000-00000000000c', 'USD', TRUE, 'JPY', 'USDJPY'),
+                    ('a1b2c3d4-0001-4000-8000-00000000000d', 'USD', TRUE, 'ZAR', 'USDZAR'),
+                    ('a1b2c3d4-0001-4000-8000-00000000000e', 'EUR', TRUE, 'CHF', 'EURCHF')
+                ON CONFLICT DO NOTHING;
+                """);
         }
 
         /// <inheritdoc />

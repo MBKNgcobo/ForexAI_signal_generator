@@ -75,9 +75,23 @@ class TechnicalAgent:
             user_prompt=prompt,
         )
 
-        analysis = self._parse_response(
-            llm_response
-        )
+        # Phase 2 (SQA C-05): one parse-retry for transient malformed
+        # output. Free-tier models occasionally emit a truncated/garbage
+        # completion; retrying once transparently (same evidence, same
+        # system prompt) recovers without surfacing a 502. A second
+        # failure still raises ValueError -> 502 at the API layer.
+        try:
+            analysis = self._parse_response(
+                llm_response
+            )
+        except ValueError:
+            llm_response = await self.llm_provider.generate(
+                system_prompt=self._system_prompt(),
+                user_prompt=prompt,
+            )
+            analysis = self._parse_response(
+                llm_response
+            )
 
         # LLM self-reported confidences skew overconfident; store the raw
         # value for audit and the calibrated value as the contract field.

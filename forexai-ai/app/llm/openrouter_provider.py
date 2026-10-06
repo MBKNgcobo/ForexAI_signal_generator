@@ -10,6 +10,7 @@ from openai import AsyncOpenAI
 
 from app.llm.llm_errors import LLMUnavailableError
 from app.llm.llm_provider import LLMProvider
+from app.observability.metrics import record_llm_failure, record_llm_request
 
 logger = logging.getLogger(__name__)
 
@@ -242,28 +243,21 @@ class OpenRouterProvider(LLMProvider):
 
                 try:
 
-                    return await self._request(
+                    result = await self._request(
                         model=model,
                         system_prompt=system_prompt,
                         user_prompt=user_prompt,
                     )
 
+                    record_llm_request("openrouter", success=True)
+
+                    return result
+
                 except Exception as exc:
 
                     last_error = exc
 
-                    logger.warning(
-                        "OpenRouter attempt %d/%d failed for %s: %s: %s",
-                        attempt,
-                        max_attempts,
-                        model,
-                        type(exc).__name__,
-                        exc,
-                    )
-
-                    failures.append(
-                        f"{model}: {type(exc).__name__}"
-                    )
+                    record_llm_failure("openrouter", str(exc))
 
                     if not _is_retryable(exc):
 
@@ -274,6 +268,10 @@ class OpenRouterProvider(LLMProvider):
                         )
 
                         break
+
+                    failures.append(
+                        f"{model}: {type(exc).__name__}"
+                    )
 
                     if attempt == max_attempts:
                         break

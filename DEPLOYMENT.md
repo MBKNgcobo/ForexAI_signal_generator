@@ -1,5 +1,10 @@
 # Deployment — ForexAI on Render (free tier)
 
+> **Local / on-premise install?** You do not need Render or any of this — the
+> full stack runs on one machine with Docker. See the
+> [README Quick start](./README.md#quick-start) and the step-by-step
+> [client installation guide](./docs/client-installation.md).
+
 Host the signal generator and dashboard so anyone with a login can use them,
 while MT5 order execution stays on your own PC.
 

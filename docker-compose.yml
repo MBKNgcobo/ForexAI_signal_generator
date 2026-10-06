@@ -1,92 +1,159 @@
+# ---------------------------------------------------------------------------
+# ForexAI platform - local Docker Compose stack
+#
+#   First install : copy .env.example to ".env" (same folder), fill it in,
+#                   then run scripts\start-forexai.bat
+#                   (or:  docker compose up -d --build)
+#   Stop          : scripts\stop-forexai.bat     (or:  docker compose down)
+#   Status        : scripts\status-forexai.bat   (or:  docker compose ps)
+#
+# Data safety: database data lives in the named volume
+# "forexai_forexai-postgres-data" and survives restarts, updates and
+# `docker compose down`. NEVER run `docker compose down -v` - that deletes
+# the volume.
+# ---------------------------------------------------------------------------
+
+# Pinned so the project name - and therefore every volume name - stays the
+# same even if the folder is renamed or the stack is started from elsewhere.
+name: forexai
+
 services:
 
+  # --- PostgreSQL ------------------------------------------------------------
+  # Internal to the stack. The host port binds to 127.0.0.1 only, so backups
+  # work from this machine while the database stays unreachable from the LAN.
   postgres:
     image: postgres:17
     container_name: forexai-postgres
+    restart: unless-stopped
 
     environment:
-      POSTGRES_DB: forexai
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-forexai}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set - copy .env.example to .env and fill it in}
 
     ports:
-      - "5434:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5434}:5432"
 
     volumes:
       - forexai-postgres-data:/var/lib/postgresql/data
 
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U postgres -d forexai"
-        ]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
+    logging: &default-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  # --- Python AI service -----------------------------------------------------
+  # Liveness healthcheck (GET /health) is baked into its Dockerfile.
+  # GET /ready reports missing configuration; the graph fails closed with a
+  # 503 when credentials are absent - it never returns made-up analysis.
   python-ai:
     build:
       context: ./forexai-ai
       dockerfile: Dockerfile
 
     container_name: forexai-python-ai
+    restart: unless-stopped
+
+    labels:
+      org.opencontainers.image.version: ${FOREXAI_VERSION:-dev}
 
     environment:
-      TWELVE_DATA_API_KEY: ${TWELVE_DATA_API_KEY}
-      LLM_PROVIDER: ${LLM_PROVIDER}
+      TWELVE_DATA_API_KEY: ${TWELVE_DATA_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
 
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL}
-      OPENROUTER_FALLBACK_MODELS: ${OPENROUTER_FALLBACK_MODELS}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      OPENROUTER_FALLBACK_MODELS: ${OPENROUTER_FALLBACK_MODELS:-}
 
-      OPENROUTER_SITE_NAME: ${OPENROUTER_SITE_NAME}
-      OPENROUTER_SITE_URL: ${OPENROUTER_SITE_URL}
-      
+      OPENROUTER_SITE_NAME: ${OPENROUTER_SITE_NAME:-ForexAI}
+      OPENROUTER_SITE_URL: ${OPENROUTER_SITE_URL:-http://localhost}
+
+      # The local Compose database runs WITHOUT TLS, while the RAG store
+      # defaults to sslmode=require. Without this override every /analysis
+      # request would fail while building the fundamentals graph.
+      RAG_DB_SSLMODE: ${RAG_DB_SSLMODE:-disable}
       RAG_DB_HOST: postgres
       RAG_DB_PORT: 5432
-      RAG_DB_NAME: forexai
-      RAG_DB_USER: postgres
-      RAG_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      RAG_DB_NAME: ${POSTGRES_DB:-forexai}
+      RAG_DB_USER: ${POSTGRES_USER:-postgres}
+      RAG_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set - copy .env.example to .env and fill it in}
 
-      SOTW_API_KEY: ${SOTW_API_KEY}
-      BUSINESS_QUANT_API_KEY: ${BUSINESS_QUANT_API_KEY}
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${DATABASE_PASSWORD_URLENCODED}@postgres:5432/${POSTGRES_DB}
+      # Optional X-API-Key guard on the expensive endpoints. MUST equal
+      # PythonApi__ApiKey on csharp-api (single source: AI_SERVICE_API_KEY
+      # in .env). Empty = guard disabled (local default).
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:-}
+
+      SOTW_API_KEY: ${SOTW_API_KEY:-}
+      BUSINESS_QUANT_API_KEY: ${BUSINESS_QUANT_API_KEY:-}
+
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
     ports:
-      - "8001:8000"
+      - "127.0.0.1:${AI_PORT:-8001}:8000"
 
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
 
+    logging: *default-logging
+
+  # --- One-shot database migration ------------------------------------------
+  # Applies EF Core migrations (including the initial schema and seed data),
+  # then exits 0. csharp-api refuses to start until this succeeds, so the API
+  # can never serve traffic against a half-migrated database.
   db-migrate:
     build:
       context: ./ForexAI
       dockerfile: Dockerfile
+
     container_name: forexai-db-migrate
+    restart: "no"
+
+    labels:
+      org.opencontainers.image.version: ${FOREXAI_VERSION:-dev}
+
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__ForexAiDatabase: "Host=postgres;Port=5432;Database=forexai;Username=postgres;Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__ForexAiDatabase: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-forexai};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set - copy .env.example to .env and fill it in}"
       PythonApi__BaseUrl: http://python-ai:8000
-      Jwt__Issuer: ${JWT_ISSUER}
-      Jwt__Audience: ${JWT_AUDIENCE}
-      Jwt__Key: ${JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:-ForexAI}
+      Jwt__Audience: ${JWT_AUDIENCE:-ForexAI}
+      Jwt__Key: ${JWT_KEY:?JWT_KEY is not set - copy .env.example to .env and fill it in}
       HttpsRedirection__Enabled: "false"
-      Cors__AllowedOrigins__0: ${CORS_ALLOWED_ORIGIN}
+      Cors__AllowedOrigins__0: ${CORS_ALLOWED_ORIGIN:-http://localhost}
+
     command: ["dotnet", "ForexAI.Api.dll", "--migrate"]
-    restart: "no"
+
     depends_on:
       postgres:
         condition: service_healthy
 
+    logging: *default-logging
 
+  # --- C# API ----------------------------------------------------------------
+  # Liveness healthcheck (GET /health) is baked into its Dockerfile.
+  # GET /health/ready (loopback only) covers database + Python service.
   csharp-api:
     build:
       context: ./ForexAI
       dockerfile: Dockerfile
 
     container_name: forexai-csharp-api
+    restart: unless-stopped
+
+    labels:
+      org.opencontainers.image.version: ${FOREXAI_VERSION:-dev}
 
     environment:
 
@@ -95,51 +162,76 @@ services:
       ConnectionStrings__ForexAiDatabase: >-
         Host=postgres;
         Port=5432;
-        Database=forexai;
-        Username=postgres;
-        Password=${POSTGRES_PASSWORD}
+        Database=${POSTGRES_DB:-forexai};
+        Username=${POSTGRES_USER:-postgres};
+        Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set - copy .env.example to .env and fill it in}
 
       PythonApi__BaseUrl: http://python-ai:8000
-      Jwt__Issuer: ForexAI
-      Jwt__Audience: ForexAI
-      Jwt__Key: ${JWT_KEY}
+      PythonApi__ApiKey: ${AI_SERVICE_API_KEY:-}
+
+      Jwt__Issuer: ${JWT_ISSUER:-ForexAI}
+      Jwt__Audience: ${JWT_AUDIENCE:-ForexAI}
+      Jwt__Key: ${JWT_KEY:?JWT_KEY is not set - copy .env.example to .env and fill it in}
 
       HttpsRedirection__Enabled: "false"
 
-      Cors__AllowedOrigins__0: ${CORS_ALLOWED_ORIGIN}
+      Cors__AllowedOrigins__0: ${CORS_ALLOWED_ORIGIN:-http://localhost}
 
-        
     volumes:
-      - forexai-dataprotection-keys:/root/.aspnet/DataProtection-Keys
+      - forexai-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys
+
+    # Loopback only: the dashboard reaches the API through the nginx proxy
+    # inside the stack; the port stays usable for local debugging and health
+    # checks without exposing the API to the local network.
     ports:
-      - "8080:8080"
+      - "127.0.0.1:${API_PORT:-8080}:8080"
 
     depends_on:
       postgres:
         condition: service_healthy
 
       python-ai:
-        condition: service_started
+        condition: service_healthy
 
       db-migrate:
         condition: service_completed_successfully
 
+    logging: *default-logging
 
+  # --- Dashboard (nginx) -----------------------------------------------------
+  # The only service published on all interfaces - it is the browser entry
+  # point. /api/* is reverse-proxied to csharp-api, so the browser always
+  # talks same-origin and never needs a public API port.
   dashboard:
     build:
       context: ./forexai-dashboard
       dockerfile: Dockerfile
 
     container_name: forexai-dashboard
+    restart: unless-stopped
+
+    labels:
+      org.opencontainers.image.version: ${FOREXAI_VERSION:-dev}
 
     ports:
-      - "80:80"
+      - "${DASHBOARD_PORT:-80}:80"
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
     depends_on:
-      - csharp-api
+      csharp-api:
+        condition: service_started
+
+    logging: *default-logging
 
 
 volumes:
 
   forexai-postgres-data:
   forexai-dataprotection-keys:
+

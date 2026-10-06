@@ -5,7 +5,7 @@ from functools import lru_cache
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.security import require_api_key
-from app.config import analysis_batch_limit
+from app.config import analysis_batch_limit, analysis_timeout_seconds
 from app.fundamentals.currency_map import split_forex_symbol
 from app.llm.llm_errors import (
     LLMUnavailableError,
@@ -88,10 +88,26 @@ async def analyze(
 
     try:
 
-        result = await analysis_service.analyze(
-            request.symbol,
-            request.timeframe,
+        result = await asyncio.wait_for(
+            analysis_service.analyze(
+                request.symbol,
+                request.timeframe,
+            ),
+            timeout=analysis_timeout_seconds(),
         )
+
+    except asyncio.TimeoutError as exc:
+        # Phase 2: a slow RAG store / LLM / provider must not hold the
+        # worker forever. Expiry is a degraded dependency (503), not a
+        # crash, so the caller retries instead of hanging.
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Analysis timed out. Dependencies are slow; "
+                "please retry shortly."
+            ),
+            headers={"Retry-After": "30"},
+        ) from exc
 
     except LLMUnavailableError as exc:
 
@@ -202,9 +218,21 @@ async def _analyze_one_inner(
         )
 
     try:
-        result = await analysis_service.analyze(
-            item.symbol,
-            item.timeframe,
+        result = await asyncio.wait_for(
+            analysis_service.analyze(
+                item.symbol,
+                item.timeframe,
+            ),
+            timeout=analysis_timeout_seconds(),
+        )
+    except asyncio.TimeoutError as exc:
+        return BatchItemError(
+            index=index,
+            status=503,
+            detail=(
+                "Analysis timed out. Dependencies are slow; "
+                f"please retry shortly. ({exc})"
+            ),
         )
     except LLMUnavailableError as exc:
         return BatchItemError(

@@ -8,7 +8,7 @@
 ![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white)
 ![Python](https://img.shields.io/badge/python-3.14-blue?logo=python&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![Tests](https://img.shields.io/badge/tests-78%2B-brightgreen)
+![Tests](https://img.shields.io/badge/tests-346-brightgreen)
 
 
 </div>
@@ -52,25 +52,77 @@ flowchart TD
 <a id="quick-start"></a>
 ## Quick start
 
-**Requirements:** Docker + Docker Compose (and, for a full run, API keys — see [Configuration](#configuration)).
+**Requirements:** Docker Desktop (Windows/macOS) or Docker Engine + Compose v2
+(Linux). For a full run you also need API keys — see [Configuration](#configuration).
+
+### Windows (recommended for clients)
+
+```bat
+:: From the folder that contains docker-compose.yml:
+scripts\start-forexai.bat
+```
+
+The script verifies Docker is running, creates `.env` from `.env.example` on
+first run and opens it for editing, refuses to start while placeholder values
+remain, builds everything, waits until all four services are healthy, then
+opens the dashboard. Full walkthrough:
+[`docs/client-installation.md`](./docs/client-installation.md).
+Day-to-day use in plain English: [`docs/user-guide.md`](./docs/user-guide.md).
+
+### Any platform (manual)
 
 ```bash
 git clone https://github.com/MBKNgcobo/ForexAI_signal_generator.git
 cd ForexAI_signal_generator
 
 cp .env.example .env      # then fill in real values
-docker compose up -d
+docker compose up -d --build
 ```
 
-| Service | URL |
-| --- | --- |
-| Dashboard | http://localhost |
-| .NET API | http://localhost:8080 |
-| AI service | http://localhost:8001 (`/health`, `/docs`) |
-| PostgreSQL | localhost:5434 |
+| Service | URL | Bound to |
+| --- | --- | --- |
+| Dashboard | http://localhost | all interfaces (`DASHBOARD_PORT`, default 80) |
+| .NET API health | http://localhost:8080/health | 127.0.0.1 only (`API_PORT`) |
+| AI service | http://localhost:8001 (`/health`, `/docs`) | 127.0.0.1 only (`AI_PORT`) |
+| PostgreSQL | localhost:5434 | 127.0.0.1 only (`POSTGRES_PORT`) |
 
 `docker compose up` builds every image, waits for PostgreSQL to become healthy,
-runs the EF Core migration job, then starts the API and dashboard.
+runs the EF Core migration job (the one-shot `db-migrate` service), then starts
+the API — which refuses to serve until the migration succeeded — and the
+dashboard. API, AI and PostgreSQL listen on 127.0.0.1 only; the dashboard is
+the sole network-facing entry point.
+
+### Everyday operations
+
+| Task | Command |
+| --- | --- |
+| Status + health checks | `scripts\status-forexai.bat` or `docker compose ps` |
+| Follow logs | `docker compose logs -f --tail 100 <service>` |
+| Apply a `.env` change | `scripts\start-forexai.bat` (plain restart keeps old env) |
+| Stop (keeps all data) | `scripts\stop-forexai.bat` |
+| Update code + images | `scripts\update-forexai.bat` |
+| Database backup | `scripts\backup-forexai.bat` → `backups\forexai-<timestamp>.sql` |
+| Create a dashboard account | `scripts\add-user-forexai.bat` |
+
+**Data safety.** All data lives in the named volume
+`forexai_forexai-postgres-data`; it survives restarts, updates and
+`docker compose down`. Never run `docker compose down -v` — that deletes it.
+The compose project name is pinned (`name: forexai`), so renaming or moving
+the folder does not orphan the volume.
+
+**Version & rollback.** Containers are stamped with the `FOREXAI_VERSION`
+label from `.env`. To roll back a bad update: `git checkout <previous-tag>`,
+then run the start script again — the database volume is untouched.
+
+**Troubleshooting:**
+
+| Symptom | Likely cause / fix |
+| --- | --- |
+| `port is already in use` | Another program owns the port — set `DASHBOARD_PORT` (or `API_PORT`, `AI_PORT`, `POSTGRES_PORT`) in `.env`, run the start script again. |
+| Start script: placeholders found | Fill in the listed values in `.env` (Notepad opens automatically). |
+| Dashboard opens but analysis fails | Run `scripts\status-forexai.bat` — `GET /health/ready` names the missing dependency (API keys, database, AI service). |
+| `/analysis` returns 503 with an `sslmode` error | `RAG_DB_SSLMODE` must stay `disable` for the bundled database — see `docker compose logs python-ai`. |
+| Stack refuses to start after an update | `docker compose logs db-migrate` — a failed migration deliberately blocks the API instead of serving against a half-migrated database. |
 
 ### Develop locally
 
@@ -114,6 +166,11 @@ The root `.env` (create it from [`.env.example`](./.env.example)) feeds
 | `LLM_PROVIDER` + keys | AI service | `openrouter` (default), `openai` or `http`, with fallback models and retries. |
 | `SOTW_API_KEY` / `BUSINESS_QUANT_API_KEY` | AI service | Optional fundamentals sources. |
 | `CORS_ALLOWED_ORIGIN` | API | Origin the dashboard calls from. |
+| `DASHBOARD_PORT` / `API_PORT` / `AI_PORT` / `POSTGRES_PORT` | compose | Host ports (defaults 80 / 8080 / 8001 / 5434). |
+| `AI_SERVICE_API_KEY` | API + AI | One value drives the optional `X-API-Key` guard on both sides. Empty = off. |
+| `RAG_DB_SSLMODE` | AI service | TLS mode for the fundamentals RAG connection; must stay `disable` for the bundled database. |
+| `LOG_LEVEL` | AI service | `DEBUG` / `INFO` / `WARNING` / `ERROR` (default `INFO`). |
+| `FOREXAI_VERSION` | compose | Version label stamped on every container. |
 
 Each component also has its own contract file — [`forexai-ai/.env.example`](./forexai-ai/.env.example)
 documents every variable the AI service understands.
@@ -126,7 +183,7 @@ injected as runtime environment variables only.
 ## Testing
 
 ```bash
-# Python AI service — 78 hermetic tests, no network, no credentials
+# Python AI service — 346 hermetic tests, no network, no credentials
 cd forexai-ai && python -m pytest -q
 
 # .NET API — unit tests
@@ -146,6 +203,9 @@ the LLM and the database, so CI needs no secrets.
 ForexAI_signal_generator/
 ├── docker-compose.yml        # postgres + api + ai service + dashboard
 ├── .env.example              # environment contract for compose
+├── scripts/                  # Windows client scripts (start/stop/status/update/backup/add-user)
+├── docs/client-installation.md # step-by-step client guide
+├── docs/user-guide.md          # plain-English guide for users and owners
 ├── .github/workflows/ci.yml  # CI
 ├── ForexAI/                  # .NET 9 API (Clean Architecture + xUnit)
 │   ├── ForexAI.Api/            # controllers, Program.cs, migrations
@@ -158,7 +218,7 @@ ForexAI_signal_generator/
 │   ├── app/api/                # routers, validation, X-API-Key guard
 │   ├── app/llm/                # provider factory, retries, typed errors
 │   ├── app/models/             # 21-feature engineering, LR/RF/XGBoost
-│   └── tests/                  # 78-test hermetic suite
+│   └── tests/                  # 346-test hermetic suite
 ├── forexai-dashboard/        # React 19 + Vite + lightweight-charts
 └── ForexAI_Architecture_v1.0/ # architecture documentation
 ```
@@ -168,7 +228,7 @@ ForexAI_signal_generator/
 - **Fail-soft by design** — the AI service starts without credentials, keeps `/health` alive, and returns `503` with `Retry-After` from the endpoint that actually needs the missing dependency.
 - **Validation at the HTTP boundary** — bad symbols, timeframes and limits are rejected with `422` before any paid LLM or provider call.
 - **Typed error contract** — `400` unsupported input · `401` auth · `422` schema · `502` unusable LLM output · `503` degraded dependency.
-- **Hermetic tests** — 78 Python tests with zero network access; CI runs without secrets.
+- **Hermetic tests** — 346 Python tests with zero network access; CI runs without secrets.
 - **Security** — optional constant-time `X-API-Key` guard, conditional CORS, JWT auth, non-root Docker images, secrets excluded from every image layer.
 - **Clean Architecture** on the .NET side keeps domain rules independent of EF Core and the transport layer, with an xUnit suite covering the use cases.
 

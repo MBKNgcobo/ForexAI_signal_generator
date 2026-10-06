@@ -148,15 +148,47 @@ def cors_origins() -> list[str]:
 
     Accepts one or more comma-separated origins. An empty value disables CORS
     entirely, which is the correct default for server-to-server usage.
+
+    Phase 1 (SQA C-01 hardening): a bare ``*`` is rejected. It would open
+    the paid endpoints to any website; list each dashboard origin
+    explicitly instead.
     """
 
     raw = get_env("CORS_ALLOWED_ORIGIN", "") or ""
 
-    return [
+    origins = [
         origin.strip()
         for origin in raw.split(",")
         if origin.strip()
     ]
+
+    return [
+        origin
+        for origin in origins
+        if origin != "*"
+    ]
+
+
+@lru_cache(maxsize=1)
+def is_production() -> bool:
+    """True when ``ENV``/``ENVIRONMENT`` explicitly selects production.
+
+    Phase 1 (SQA C-01): security defaults must be fail-closed in hosted
+    deployments while staying frictionless for local development. Only the
+    explicit values ``production``/``prod`` opt into the strict defaults;
+    anything else (including unset) keeps the local behaviour.
+    """
+
+    raw = (
+        get_env("ENV", "")
+        or get_env("ENVIRONMENT", "")
+        or ""
+    )
+
+    return raw.strip().lower() in {
+        "production",
+        "prod",
+    }
 
 
 @lru_cache(maxsize=1)
@@ -164,7 +196,10 @@ def expected_api_key() -> str | None:
     """Optional shared-secret used to protect the expensive endpoints.
 
     When ``AI_SERVICE_API_KEY`` is unset the guard is disabled, so existing
-    local setups and integration clients keep working unchanged.
+    local setups and integration clients keep working unchanged. In
+    production (see ``is_production``) a missing key is a deployment error:
+    the value is still returned as ``None`` so callers can map it to 503,
+    and the request is never served open.
     """
 
     return get_env("AI_SERVICE_API_KEY")
@@ -193,6 +228,85 @@ def analysis_batch_limit() -> int:
         return 10
 
     return parsed if parsed > 0 else 10
+
+
+#: Wall-clock budget for one /analysis call. A slow RAG store + two LLM
+#: calls + provider fetch previously held a worker with no bound.
+DEFAULT_ANALYSIS_TIMEOUT_SECONDS = 120.0
+
+
+@lru_cache(maxsize=1)
+def analysis_timeout_seconds() -> float:
+    """Total budget for one analysis request (``ANALYSIS_TIMEOUT_SECONDS``).
+
+    Phase 2: expiry maps to 503 (degraded dependency) so the caller
+    retries instead of hanging. Invalid values fall back to the default.
+    """
+
+    raw = get_env(
+        "ANALYSIS_TIMEOUT_SECONDS",
+        str(DEFAULT_ANALYSIS_TIMEOUT_SECONDS),
+    )
+
+    try:
+        parsed = float(raw) if raw else DEFAULT_ANALYSIS_TIMEOUT_SECONDS
+    except (TypeError, ValueError):
+        logger.warning(
+            "Ignoring invalid ANALYSIS_TIMEOUT_SECONDS: %r",
+            raw,
+        )
+        return DEFAULT_ANALYSIS_TIMEOUT_SECONDS
+
+    if parsed <= 0:
+        logger.warning(
+            "Ignoring non-positive ANALYSIS_TIMEOUT_SECONDS: %r",
+            raw,
+        )
+        return DEFAULT_ANALYSIS_TIMEOUT_SECONDS
+
+    return parsed
+
+
+#: Per-source budget for fundamental refreshes. Sequential unbounded
+#: refreshes previously added seconds to p95.
+DEFAULT_FUNDAMENTAL_REFRESH_TIMEOUT_SECONDS = 8.0
+
+
+@lru_cache(maxsize=1)
+def fundamental_refresh_timeout_seconds() -> float:
+    """Per-source refresh budget (``FUNDAMENTAL_REFRESH_TIMEOUT_SECONDS``).
+
+    Phase 2 (SQA C-06): each World Bank / SOTW / Business Quant refresh
+    runs concurrently under this timeout; expiry degrades to cached RAG
+    evidence. Invalid values fall back to the default.
+    """
+
+    raw = get_env(
+        "FUNDAMENTAL_REFRESH_TIMEOUT_SECONDS",
+        str(DEFAULT_FUNDAMENTAL_REFRESH_TIMEOUT_SECONDS),
+    )
+
+    try:
+        parsed = (
+            float(raw)
+            if raw
+            else DEFAULT_FUNDAMENTAL_REFRESH_TIMEOUT_SECONDS
+        )
+    except (TypeError, ValueError):
+        logger.warning(
+            "Ignoring invalid FUNDAMENTAL_REFRESH_TIMEOUT_SECONDS: %r",
+            raw,
+        )
+        return DEFAULT_FUNDAMENTAL_REFRESH_TIMEOUT_SECONDS
+
+    if parsed <= 0:
+        logger.warning(
+            "Ignoring non-positive FUNDAMENTAL_REFRESH_TIMEOUT_SECONDS: %r",
+            raw,
+        )
+        return DEFAULT_FUNDAMENTAL_REFRESH_TIMEOUT_SECONDS
+
+    return parsed
 
 
 @lru_cache(maxsize=1)
@@ -321,11 +435,12 @@ def quant_threshold() -> float:
     """Minimum quant probability for LOW risk and the opposing-quant veto.
 
     ``QUANT_PROBABILITY_THRESHOLD`` overrides the default. Validation
-    (EURUSD 15m, 113 days) is the basis: 0.60 admitted ~0.7 candidates/day
-    with a negative net; 0.50 admitted ~5.9/day with the only profitable
-    net. Out-of-range or malformed values fall back to the default so a
-    typo can never silently disable the veto (0.0) or block every trade
-    (1.0+).
+    (EURUSD 15m, 113 days, net of spread=0.00015 + slippage=0.00005 per
+    round trip — see app/backtesting/threshold_analysis.py) is the basis:
+    0.60 admitted ~0.7 candidates/day with a negative net; 0.50 admitted
+    ~5.9/day with the only profitable net. Out-of-range or malformed
+    values fall back to the default so a typo can never silently disable
+    the veto (0.0) or block every trade (1.0+).
     """
 
     raw = get_env("QUANT_PROBABILITY_THRESHOLD")

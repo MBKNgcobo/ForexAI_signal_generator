@@ -6,7 +6,7 @@ import secrets
 
 from fastapi import Header, HTTPException, status
 
-from app.config import expected_api_key
+from app.config import expected_api_key, is_production
 
 
 def require_api_key(
@@ -21,11 +21,24 @@ def require_api_key(
     external market-data quota. When ``AI_SERVICE_API_KEY`` is not set the
     guard is a no-op so that local development and existing callers are not
     broken; production deployments are expected to set it.
+
+    Phase 1 (SQA C-01): in production an unset key is a deployment error,
+    not an open door. The request is rejected with 503 (missing
+    configuration, ``Retry-After``) instead of being served unauthenticated.
     """
 
     expected = expected_api_key()
 
     if expected is None:
+        if is_production():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Service is not securely configured: AI_SERVICE_API_KEY "
+                    "is required when ENV=production."
+                ),
+                headers={"Retry-After": "30"},
+            )
         return
 
     provided = x_api_key or ""

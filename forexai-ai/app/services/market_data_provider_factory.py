@@ -35,14 +35,14 @@ def create_market_data_provider() -> MarketDataProvider:
     name = market_data_provider_name()
 
     if name == "mt5":
-        login = get_env("MT5_LOGIN")
+        login_raw = get_env("MT5_LOGIN")
         password = get_env("MT5_PASSWORD")
         server = get_env("MT5_SERVER")
 
         missing = [
             var
             for var, value in (
-                ("MT5_LOGIN", login),
+                ("MT5_LOGIN", login_raw),
                 ("MT5_PASSWORD", password),
                 ("MT5_SERVER", server),
             )
@@ -56,15 +56,41 @@ def create_market_data_provider() -> MarketDataProvider:
                 + ". See .env.example for the MT5 configuration block."
             )
 
+        # Phase 2 (SQA C-08): a non-numeric login previously raised
+        # ValueError deep in int() -> opaque 500. Validate here so the
+        # HTTP layer maps it to 503 naming the exact variable.
+        try:
+            login = int(login_raw or "")
+        except (TypeError, ValueError):
+            raise RuntimeError(
+                "MT5_LOGIN must be a numeric account login, "
+                f"got {login_raw!r}."
+            ) from None
+
+        if login <= 0:
+            raise RuntimeError(
+                "MT5_LOGIN must be a positive account login, "
+                f"got {login_raw!r}."
+            )
+
         raw_timeout = get_env("MT5_TIMEOUT_SECONDS", "60") or "60"
 
         try:
             timeout = float(raw_timeout)
         except ValueError:
-            timeout = 60.0
+            raise RuntimeError(
+                "MT5_TIMEOUT_SECONDS must be numeric, "
+                f"got {raw_timeout!r}."
+            ) from None
+
+        if not timeout > 0:
+            raise RuntimeError(
+                "MT5_TIMEOUT_SECONDS must be > 0, "
+                f"got {raw_timeout!r}."
+            )
 
         return MT5MarketDataProvider(
-            login=int(login or 0),
+            login=login,
             password=password or "",
             server=server or "",
             path=get_env("MT5_PATH"),

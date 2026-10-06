@@ -31,6 +31,48 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _status_code(exc: Exception) -> int | None:
+    """Extract an HTTP status from an OpenAI SDK error, if present."""
+
+    status = getattr(exc, "status_code", None)
+
+    if isinstance(status, int):
+        return status
+
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+
+    return status if isinstance(status, int) else None
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Only transient failures deserve a retry (SQA C-04).
+
+    401/403/404/400-class errors (bad key, unknown model, bad request)
+    will never succeed on retry — fail fast so a misconfigured
+    deployment surfaces in milliseconds, not after three backoffs.
+    Retried: 408/429/5xx, timeouts, connection drops, empty completions.
+    """
+
+    if isinstance(exc, ValueError):
+        # Empty completion: transient model behaviour, worth one more try.
+        return "empty completion" in str(exc).lower()
+
+    name = type(exc).__name__.lower()
+
+    if "timeout" in name or "connection" in name or "rate" in name:
+        return True
+
+    status = _status_code(exc)
+
+    if status is None:
+        # Unknown SDK error without a status: historically retried; keep
+        # that behaviour so transient failures still recover.
+        return True
+
+    return status in {408, 429} or status >= 500
+
+
 class OpenAIProvider(LLMProvider):
     """OpenAI-backed provider with OpenRouter-style retry discipline.
 
@@ -99,6 +141,12 @@ class OpenAIProvider(LLMProvider):
                     type(exc).__name__,
                     exc,
                 )
+
+                if not _is_retryable(exc):
+                    logger.warning(
+                        "OpenAI error is not retryable; failing fast."
+                    )
+                    break
 
                 if attempt >= max_attempts:
                     break

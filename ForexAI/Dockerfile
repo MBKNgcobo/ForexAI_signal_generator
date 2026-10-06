@@ -26,10 +26,29 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 
 WORKDIR /app
 
-COPY --from=build /app/publish .
+# curl is needed by the container healthcheck below (GET /health); the
+# aspnet base image ships neither curl nor wget. This is the only package
+# added to the runtime image.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 
-ENV ASPNETCORE_URLS=http://+:8080
+COPY --from=build --chown=app:app /app/publish .
+
+# DataProtection keys must live on the persistent volume and be writable by
+# the non-root runtime user (the aspnet image ships an "app" user, uid 1654).
+# Compose mounts forexai-dataprotection-keys at /home/app/.aspnet/DataProtection-Keys.
+ENV ASPNETCORE_URLS=http://+:8080 \
+    DOTNET_RUNNING_IN_CONTAINER=true
 
 EXPOSE 8080
+
+# Liveness: /health never touches the database or the Python service, so a
+# healthy container means the process is up, not that dependencies are good.
+# Use GET /health/ready (loopback) for the full dependency picture.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8080/health || exit 1
+
+USER app
 
 ENTRYPOINT ["dotnet", "ForexAI.Api.dll"]

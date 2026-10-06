@@ -1,7 +1,9 @@
+import asyncio
 import logging
 import os
 from datetime import date
 
+from app.config import fundamental_refresh_timeout_seconds
 from app.fundamentals.clients.business_quant_client import (
     BusinessQuantClient,
 )
@@ -28,6 +30,25 @@ from app.fundamentals.rag_store import (
 
 
 logger = logging.getLogger(__name__)
+
+
+def _refresh_timeout_seconds() -> float:
+    """Per-source refresh budget (SQA Phase 2, C-06)."""
+
+    return fundamental_refresh_timeout_seconds()
+
+
+#: Timeframes where annual World Bank observations are treated as stale
+#: context rather than fresh evidence (SQA C-06). Intraday signals must
+#: not overweight year-old GDP prints.
+INTRADAY_TIMEFRAMES = frozenset(
+    {
+        "OneMinute",
+        "FiveMinutes",
+        "FifteenMinutes",
+        "OneHour",
+    }
+)
 
 
 WORLD_BANK_INDICATORS = {
@@ -341,62 +362,59 @@ class FundamentalRAGService:
         ]
 
         # --------------------------------------------------
-        # WORLD BANK
+        # REFRESH (parallel, time-bounded — SQA Phase 2 C-06)
+        #
+        # World Bank / SOTW / Business Quant previously refreshed
+        # sequentially with no timeout: one slow source stalled the whole
+        # analysis. Now all refreshes run concurrently under
+        # FUNDAMENTAL_REFRESH_TIMEOUT_SECONDS; any failure or timeout
+        # degrades to the cached RAG evidence instead of failing the
+        # request.
         # --------------------------------------------------
-        #
-        # World Bank is supplemental evidence.
-        # If one country or indicator fails, continue
-        # using the existing database evidence.
-        #
-        for currency in currencies:
-            try:
-                await self._refresh_world_bank(
-                    currency
-                )
 
+        budget = _refresh_timeout_seconds()
+
+        async def _guarded(coro, label: str) -> None:
+            try:
+                await asyncio.wait_for(coro, timeout=budget)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Fundamental refresh timed out (%s).",
+                    label,
+                )
             except Exception as exc:
                 logger.warning(
-                    "World Bank refresh failed for %s: %s",
-                    currency,
+                    "%s refresh failed: %s",
+                    label,
                     exc,
                 )
 
-        # --------------------------------------------------
-        # STATISTICS OF THE WORLD
-        # --------------------------------------------------
-        #
-        # SOTW provides high-frequency central-bank
-        # policy-rate and inflation data.
-        #
+        jobs = []
+
         for currency in currencies:
-            try:
-                await self._refresh_sotw(
-                    currency
+            jobs.append(
+                _guarded(
+                    self._refresh_world_bank(currency),
+                    f"World Bank {currency}",
                 )
-
-            except Exception as exc:
-                logger.warning(
-                    "SOTW refresh failed for %s: %s",
-                    currency,
-                    exc,
+            )
+            jobs.append(
+                _guarded(
+                    self._refresh_sotw(currency),
+                    f"SOTW {currency}",
                 )
+            )
 
-        # --------------------------------------------------
-        # BUSINESS QUANT
-        # --------------------------------------------------
-        #
-        # Business Quant currently provides USD
-        # economic indicators.
-        #
         if "USD" in currencies:
-            try:
-                await self._refresh_business_quant()
-
-            except Exception as exc:
-                logger.warning(
-                    "Business Quant refresh failed: %s",
-                    exc,
+            jobs.append(
+                _guarded(
+                    self._refresh_business_quant(),
+                    "Business Quant",
                 )
+            )
+
+        if jobs:
+            await asyncio.gather(*jobs)
 
         # --------------------------------------------------
         # FUNDAMENTAL RETRIEVAL QUERY

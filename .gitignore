@@ -45,6 +45,11 @@ forexai-ai/data/**
 backups/
 *.log
 
+# --- Client distribution (generated) ----------------------------------------
+# Built by scripts/build-release.ps1. Never commit the ZIP or staged copy;
+# they are generated artifacts and may contain environment-specific files.
+release/
+
 # --- Stray scratch files at the repo root ----------------------------------
 # Local editor dumps with no stable location/name.
 /app.tsx file and app.ts and program.cs

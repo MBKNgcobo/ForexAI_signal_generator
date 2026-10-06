@@ -29,3 +29,16 @@ jobs:
       - name: Run test suite
         # The suite is hermetic: no Twelve Data / LLM / database access.
         run: python -m pytest -q
+
+  compose-config:
+    name: docker compose config
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml against .env.example
+        # No secrets needed: .env.example supplies placeholder values.
+        # Catches interpolation errors and invalid depends_on/healthcheck
+        # definitions before they reach a deployment.
+        run: docker compose --env-file .env.example config --quiet

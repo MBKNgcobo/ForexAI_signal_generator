@@ -1,0 +1,40 @@
+ForexAI - start here (Windows)
+==============================
+
+You need: Docker Desktop installed, this folder unzipped somewhere
+permanent (for example C:\ForexAI), and an internet connection.
+
+1. Install Docker Desktop:
+     https://docs.docker.com/get-docker/
+   Start it, wait until the whale icon in the taskbar is steady,
+   and restart the computer if Windows asks you to (WSL 2 setup).
+
+2. Get 2 free API keys (needed for live analysis):
+     - Market data: https://twelvedata.com  -> free account -> API key
+     - AI reasoning: https://openrouter.ai  -> sign in -> API keys
+
+3. Open this folder and DOUBLE-CLICK:
+     start.bat
+   - First run creates a file called .env and opens it in Notepad.
+   - Fill in 4 values: POSTGRES_PASSWORD (make one up),
+     JWT_KEY (make up a different one), TWELVE_DATA_API_KEY,
+     OPENROUTER_API_KEY. Save, close Notepad, run start.bat again.
+   - First build takes 5-15 minutes. Later starts take under a minute.
+
+4. Your browser opens at the address shown, usually:
+     http://localhost
+
+5. Create your first login by double-clicking:
+     scripts\add-user-forexai.bat
+   and answering the 3 questions (email, display name, password).
+
+Everyday use:
+  start.bat   = start the app        stop.bat    = stop (data is kept)
+  status.bat  = check health         logs.bat    = view/save logs
+  reset.bat   = DELETE all data (asks twice, backup first)
+
+Your data survives restarts, updates and reboots. It is only deleted by
+reset.bat (or `docker compose down -v`, which you must never run).
+
+Stuck? Run collect-diagnostics.bat and send the created folder to support.
+Full guides: docs\client-installation.md and docs\user-guide.md.
