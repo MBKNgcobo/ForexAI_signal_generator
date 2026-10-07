@@ -55,7 +55,21 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--live",
         action="store_true",
-        help="Allow real orders (also requires MT5_DRY_RUN=false).",
+        help=(
+            "Arm real MT5 orders (only with --mode mt5). Startup is REFUSED "
+            "unless MT5_DRY_RUN=false is also set in the environment "
+            "(dual-key safety interlock)."
+        ),
+    )
+    parser.add_argument(
+        "--mode",
+        default=None,
+        choices=("dry_run", "paper", "mt5"),
+        help=(
+            "Execution mode: dry_run validates without filling (default), "
+            "paper fills against live market data in a virtual account, "
+            "mt5 routes to the MT5 terminal. Overrides TRADING_MODE."
+        ),
     )
     parser.add_argument(
         "--token",
@@ -77,20 +91,72 @@ def _resolve_volume(args: argparse.Namespace) -> float:
         return 0.01
 
 
-def _build_bridge(args: argparse.Namespace):
+def live_mode_refused(live_flag: bool, dry_run_value: bool) -> bool:
+    """Dual-key interlock: real orders need ``--live`` AND ``MT5_DRY_RUN=false``.
+
+    Returns True when a requested ``--live`` start must be refused. A plain
+    dry-run start (``live_flag`` False) is never refused, so the default
+    operation of the bridge cannot be broken by the safety switch.
+    ``dry_run_value`` is the resolved ``mt5_dry_run()`` config (anything
+    unset/garbage resolves to True = dry-run).
+    """
+
+    return bool(live_flag) and bool(dry_run_value)
+
+
+def _resolve_mode(args: argparse.Namespace) -> str:
+    """Resolve dry_run/paper/mt5: CLI --mode wins, else TRADING_MODE."""
+    if args.mode is not None:
+        return args.mode
+    try:
+        from app.config import trading_mode
+
+        return trading_mode()
+    except Exception:  # noqa: BLE001
+        return "dry_run"
+
+
+def _build_bridge(args: argparse.Namespace, mode: str):
     from dotenv import load_dotenv
 
-    from app.broker.mt5_executor import MT5TradeExecutor
     from app.broker.signal_bridge import SignalBridge
 
     load_dotenv()
 
-    executor = MT5TradeExecutor(
-        dry_run=False if args.live else None,
-    )
+    if mode == "paper":
+        from app.broker.paper_broker import (
+            PaperBroker,
+            make_service_price_source,
+        )
+        from app.services.market_data_cache import MarketDataCache
+        from app.services.market_data_provider_factory import (
+            provider_from_env,
+        )
+        from app.services.market_data_service import MarketDataService
 
-    return SignalBridge(
-        executor=executor,
+        service = MarketDataService(
+            provider=provider_from_env(), cache=MarketDataCache()
+        )
+        source = make_service_price_source(service)
+        executor = PaperBroker(price_source=source)
+        executor.start_monitor()
+        bridge = SignalBridge(
+            executor=executor,  # type: ignore[arg-type]
+            volume=_resolve_volume(args),
+            min_confidence=args.min_confidence,
+            max_entry_drift_points=args.max_drift_points,
+            price_source=source,
+        )
+        bridge_executor_kind = "paper"
+        bridge_executor_kind = "paper"
+    else:
+        from app.broker.mt5_executor import MT5TradeExecutor
+
+        executor = MT5TradeExecutor(
+            dry_run=False if args.live else None,
+        )
+        bridge = SignalBridge(
+            executor=executor,
         volume=_resolve_volume(args),
         min_confidence=args.min_confidence,
         max_entry_drift_points=args.max_drift_points,
@@ -163,6 +229,19 @@ def main() -> int:
 
     args = _parse_args()
     token = args.token or os.getenv("BRIDGE_TOKEN")
+
+    # Dual-key safety interlock: --live alone must never arm real orders.
+    # The environment key (MT5_DRY_RUN=false) is the explicit configuration
+    # change required on top of the command-line flag.
+    from app.config import mt5_dry_run
+
+    if live_mode_refused(args.live, mt5_dry_run()):
+        logger.error(
+            "Refusing to start: --live was passed but MT5_DRY_RUN is not "
+            "explicitly 'false'. Set MT5_DRY_RUN=false in .env to arm real "
+            "orders, or drop --live to stay in dry-run (default)."
+        )
+        return 2
 
     if args.host not in ("127.0.0.1", "localhost", "::1"):
         logger.warning(

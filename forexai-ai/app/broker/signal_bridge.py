@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 EXECUTABLE_DIRECTIONS = {"BUY", "SELL"}
 
+EXECUTABLE_DIRECTIONS = {"BUY", "SELL"}
+
 
 class SignalRejectedError(ValueError):
     """The incoming signal is not safe/eligible to execute."""
@@ -150,7 +152,14 @@ def prepare_order_request(
 
 
 class SignalBridge:
-    """Execute analysis payloads through an ``MT5TradeExecutor``.
+    """Maps analysis payloads to orders and routes them to an executor.
+
+    The executor is any object with ``send(req, dry_run=...)`` returning an
+    object with ``dry_run`` / ``payload`` / ``ticket`` — ``MT5TradeExecutor``
+    for demo orders, ``PaperBroker`` for simulated fills.  The price source
+    defaults to the MT5 terminal tick (for the entry-drift guard) but can be
+    injected (paper mode passes its own source) so the bridge never imports
+    MetaTrader when it is not needed.
 
     ``max_entry_drift_points`` (default 100 points = 10 pips on a
     5-digit broker) rejects signals whose market price has moved away
@@ -159,15 +168,17 @@ class SignalBridge:
 
     def __init__(
         self,
-        executor: MT5TradeExecutor,
+        executor: MT5TradeExecutor | Any,
         volume: float = 0.01,
-        min_confidence: float | None = None,
+        min_confidence: float | None = 0.0,
         max_entry_drift_points: float = 100.0,
-    ):
+        price_source: Any | None = None,
+    ) -> None:
         self.executor = executor
         self.volume = volume
         self.min_confidence = min_confidence
         self.max_entry_drift_points = max_entry_drift_points
+        self.price_source = price_source
 
     def prepare(self, payload: Any) -> OrderRequest:
         """Gate + map a payload (no terminal access)."""
@@ -182,6 +193,9 @@ class SignalBridge:
         float, float
     ]:
         """(price, point_size) from the live tick for ``symbol``."""
+
+        if self.price_source is not None:
+            return self.price_source(symbol, side)
 
         mt5 = self.executor._ensure_connected()
         broker_symbol = self.executor._resolve_symbol(mt5, symbol)

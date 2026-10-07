@@ -4,16 +4,17 @@ Phase 1 ships the connection layer only. Execution (Phase 3) lives here
 later, always dry-run first per the trading safety guardrails.
 """
 
-from app.broker.mt5_connection import (
-    MT5ConnectionError,
-    connect,
-    ensure_terminal_running,
-    shutdown,
-)
+from app.broker.mt5_sync import MT5StateSynchronizer
 
 __all__ = [
     "MT5ConnectionError",
+    "MT5TradeExecutor",
+    "OrderKind",
+    "OrderRequest",
+    "OrderResult",
+    "OrderSide",
+    "MT5StateSynchronizer",
     "connect",
-    "ensure_terminal_running",
     "shutdown",
+    "ensure_terminal_running",
 ]

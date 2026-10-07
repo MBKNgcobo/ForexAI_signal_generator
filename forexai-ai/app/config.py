@@ -537,3 +537,267 @@ def ensemble_weights() -> dict[str, float]:
             weights[name] = parsed
 
     return weights
+
+
+# ---------------------------------------------------------------------------
+# Trading mode, safety rails and paper trading (recommendation implementation).
+#
+# Fail-safe defaults: the service starts in DRY_RUN; caps that could surprise
+# an operator are either small and sane (3 open positions) or explicitly
+# opt-in (0 = disabled for money-based limits). Every malformed value
+# degrades to the safe default rather than crashing or disabling a guard.
+# ---------------------------------------------------------------------------
+
+TRADING_MODE_DRY_RUN = "dry_run"
+TRADING_MODE_PAPER = "paper"
+TRADING_MODE_MT5 = "mt5"
+_TRADING_MODES = frozenset(
+    {TRADING_MODE_DRY_RUN, TRADING_MODE_PAPER, TRADING_MODE_MT5}
+)
+
+
+@lru_cache(maxsize=1)
+def trading_mode() -> str:
+    """Execution mode selected by ``TRADING_MODE`` (default ``dry_run``).
+
+    ``dry_run``: log payloads, never send (today's behaviour).
+    ``paper``: fill against live market data in a virtual account.
+    ``mt5``: real terminal orders — still gated by the dual-key interlock
+    (``--live`` + ``MT5_DRY_RUN=false``) in the bridge.
+    Unknown values fall back to ``dry_run`` so a typo can never arm
+    real trading.
+    """
+
+    raw = (get_env("TRADING_MODE", TRADING_MODE_DRY_RUN) or TRADING_MODE_DRY_RUN)
+    raw = raw.strip().lower().replace("-", "_")
+
+    if raw not in _TRADING_MODES:
+        logger.warning(
+            "Ignoring invalid TRADING_MODE=%r, using %r.",
+            raw,
+            TRADING_MODE_DRY_RUN,
+        )
+        return TRADING_MODE_DRY_RUN
+
+    return raw
+
+
+@lru_cache(maxsize=1)
+def max_open_positions() -> int:
+    """Simultaneous open-position cap (``MAX_OPEN_POSITIONS``, default 3).
+
+    A small default keeps supervised testing comfortable while still
+    stopping a duplicate-signal storm. ``0`` disables the cap.
+    """
+
+    raw = get_env("MAX_OPEN_POSITIONS", "3") or "3"
+
+    try:
+        parsed = int(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid MAX_OPEN_POSITIONS=%r, using 3.", raw
+        )
+        return 3
+
+    if parsed < 0:
+        logger.warning(
+            "Ignoring negative MAX_OPEN_POSITIONS=%d, using 3.", parsed
+        )
+        return 3
+
+    return parsed
+
+
+@lru_cache(maxsize=1)
+def max_daily_loss() -> float:
+    """Daily-loss circuit breaker in account currency (``MAX_DAILY_LOSS``).
+
+    ``<= 0`` (the default) disables the breaker; a positive value trips
+    the bridge when equity falls that far below the first equity of the
+    UTC day. Invalid input falls back to disabled.
+    """
+
+    raw = get_env("MAX_DAILY_LOSS")
+
+    if raw is None:
+        return 0.0
+
+    try:
+        parsed = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid MAX_DAILY_LOSS=%r, breaker disabled.", raw
+        )
+        return 0.0
+
+    return parsed if parsed > 0 else 0.0
+
+
+@lru_cache(maxsize=1)
+def duplicate_window_seconds() -> float:
+    """Idempotency window (``DUPLICATE_WINDOW_SECONDS``, default 300).
+
+    A second signal for the same symbol+direction inside the window is
+    refused. ``0`` disables the duplicate guard.
+    """
+
+    raw = get_env("DUPLICATE_WINDOW_SECONDS", "300") or "300"
+
+    try:
+        parsed = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid DUPLICATE_WINDOW_SECONDS=%r, using 300.", raw
+        )
+        return 300.0
+
+    return parsed if parsed >= 0 else 300.0
+
+
+@lru_cache(maxsize=1)
+def risk_percent() -> float:
+    """Balance risk per trade in percent (``RISK_PERCENT``, default 0).
+
+    ``0`` (disabled) keeps the fixed ``MT5_SIGNAL_VOLUME`` behaviour.
+    Values above 10 are clamped — risking more than 10% per trade is
+    never sensible and usually a unit mistake.
+    """
+
+    raw = get_env("RISK_PERCENT")
+
+    if raw is None:
+        return 0.0
+
+    try:
+        parsed = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid RISK_PERCENT=%r, sizing disabled.", raw
+        )
+        return 0.0
+
+    if parsed <= 0:
+        return 0.0
+
+    if parsed > 10.0:
+        logger.warning(
+            "Clamping RISK_PERCENT=%.2f to 10.0 per trade.", parsed
+        )
+        return 10.0
+
+    return parsed
+
+
+@lru_cache(maxsize=1)
+def max_spread_pips() -> float:
+    """Refuse entries when the spread exceeds this many pips.
+
+    ``0`` (default) disables the gate. Invalid values fall back to off.
+    """
+
+    raw = get_env("MAX_SPREAD_PIPS")
+
+    if raw is None:
+        return 0.0
+
+    try:
+        parsed = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid MAX_SPREAD_PIPS=%r, gate disabled.", raw
+        )
+        return 0.0
+
+    return parsed if parsed > 0 else 0.0
+
+
+@lru_cache(maxsize=1)
+def mt5_allow_live() -> bool:
+    """``MT5_ALLOW_LIVE`` (default false): hard block on non-demo accounts.
+
+    Fail-closed: anything except an explicit enable keeps the block.
+    """
+
+    raw = (get_env("MT5_ALLOW_LIVE", "false") or "false").lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+@lru_cache(maxsize=1)
+def trade_log_path() -> str:
+    """JSONL trade/signal log location (``TRADE_LOG_PATH``)."""
+
+    return get_env("TRADE_LOG_PATH", "data/trade_log.jsonl") or (
+        "data/trade_log.jsonl"
+    )
+
+
+@lru_cache(maxsize=1)
+def stop_file_path() -> str:
+    """Kill-switch file (``TRADING_STOP_FILE``); presence blocks all sends."""
+
+    return get_env("TRADING_STOP_FILE", "data/TRADING_STOP") or (
+        "data/TRADING_STOP"
+    )
+
+
+@lru_cache(maxsize=1)
+def paper_initial_balance() -> float:
+    """Starting virtual balance (``PAPER_INITIAL_BALANCE``, default 10000)."""
+
+    raw = get_env("PAPER_INITIAL_BALANCE", "10000") or "10000"
+
+    try:
+        parsed = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid PAPER_INITIAL_BALANCE=%r, using 10000.", raw
+        )
+        return 10000.0
+
+    return parsed if parsed > 0 else 10000.0
+
+
+@lru_cache(maxsize=1)
+def paper_poll_seconds() -> float:
+    """SL/TP monitor interval for paper positions (default 60 s, min 5 s)."""
+
+    raw = get_env("PAPER_POLL_SECONDS", "60") or "60"
+
+    try:
+        parsed = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid PAPER_POLL_SECONDS=%r, using 60.", raw
+        )
+        return 60.0
+
+    return parsed if parsed >= 5.0 else 5.0
+
+
+@lru_cache(maxsize=1)
+def paper_spread_pips() -> float:
+    """Spread charged once at paper entry (default 1.5 pips, matching the
+    backtest's 0.00015). Negative or invalid falls back to the default."""
+
+    raw = get_env("PAPER_SPREAD_PIPS", "1.5") or "1.5"
+
+    try:
+        parsed = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid PAPER_SPREAD_PIPS=%r, using 1.5.", raw
+        )
+        return 1.5
+
+    return parsed if parsed >= 0 else 1.5
+
+
+@lru_cache(maxsize=1)
+def paper_state_path() -> str:
+    """Persisted virtual account file (``PAPER_STATE_PATH``)."""
+
+    return get_env("PAPER_STATE_PATH", "data/paper_account.json") or (
+        "data/paper_account.json"
+    )
+
