@@ -330,7 +330,7 @@ Run the gates before pushing:
 ```powershell
 cd forexai-ai
 python -m ruff check app tests scripts
-python -m pytest -q                      # 331 tests
+python -m pytest -q                      # 382 tests
 python scripts/check_mt5_market_data.py # local MT5 smoke test
 
 cd ..\ForexAI

@@ -18,7 +18,7 @@
 - [ ] `MT5_DRY_RUN=true` confirmed in `.env`.
 - [ ] Quant model artifacts present (`models/*.joblib`, or run
       `python scripts/fetch_model_artifacts.py`).
-- [ ] Test suite green: `python -m pytest -q` (366+ tests).
+- [ ] Test suite green: `python -m pytest -q` (382+ tests).
 - [ ] Journal ready: copy [`MT5_TRADE_JOURNAL.md`](MT5_TRADE_JOURNAL.md).
 
 ---

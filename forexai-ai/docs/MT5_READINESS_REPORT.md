@@ -14,7 +14,7 @@
 **Why 🟢:** the application contains a *real, tested* MT5 integration — not a
 mock: connection, market data, account/position reads, signal generation, a
 risk-gated execution path with mandatory stop-loss/take-profit, and a webhook
-bridge — all defaulting to **dry-run**, with a hermetic suite of 370 passing
+bridge — all defaulting to **dry-run**, with a hermetic suite of 382 passing
 tests including five dedicated MT5 test modules. Everything needed to safely
 evaluate the system on a demo account works *today*.
 
@@ -30,7 +30,7 @@ evaluate the system on a demo account works *today*.
 4. **No live account is used at any point** during evaluation.
 
 **Why not a blanket 🟡/🔴:** nothing blocks a first safe demo test — the missing
-features (position sizing, kill switch, trade DB) affect *unattended scale*, not
+features (position sizing, kill switch, duplicate-order protection) affect *unattended scale*, not
 a supervised evaluation.
 
 ---
@@ -59,7 +59,7 @@ a supervised evaluation.
 | Verification CLIs (connection/data/orders/sync) | `scripts/check_mt5_*.py` | ✅ Implemented |
 | Backtesting with spread/slippage/commission | `app/backtesting/engine.py` | ✅ Implemented |
 | Observability (Prometheus, structured logs, request IDs) | `observability/` + `/metrics` | ✅ Implemented |
-| Hermetic test suite (370 tests, no network) | `tests/` incl. 5 MT5 modules | ✅ Passing |
+| Hermetic test suite (382 tests, no network) | `tests/` incl. 5 MT5 modules | ✅ Passing |
 
 ## Missing capabilities (verified absent by codebase search)
 
@@ -73,7 +73,8 @@ a supervised evaluation.
 | Spread & slippage protection at fill time | `deviation` cap exists (20 points), but no max-spread check | ❌ Missing (P1) |
 | Trading-session / news-event restrictions | Signals can arrive any time the webhook is called | ❌ Missing (P2) |
 | Order modification & automated closing | Executor opens only; sync is read-only; close = manual | ❌ Missing (P2, by design so far) |
-| Persisted trade log / performance dashboard | Logs + Prometheus only; no trade records | ❌ Missing (P1) — journal covers testing phase |
+| Persisted trade log | `app/broker/trade_log.py` — append-only `data/trade_log.jsonl` (`signal_rejected`/`order_sent`/`filled`/`closed`) with P&L columns; host bind-mount | ✅ Implemented (P1-2 done) |
+| Performance dashboard (read of the trade log / MT5) | No JSONL reader in the C# API yet; MT5 Account History + journal cover the testing phase | ❌ Missing (P2) |
 | Pre-send margin check | Margin discovered only via broker rejection (10019) | ❌ Missing (P1) |
 | Account-type guard (demo vs live) | Code cannot currently refuse a live account | ❌ Missing (P1) |
 
@@ -96,8 +97,8 @@ a supervised evaluation.
 | Modify orders | **Missing** | — | Future (P2) |
 | Close orders programmatically | **Missing** | — | Manual close during testing (P2) |
 | Position sizing | **Partial** | Fixed volume only | P1 risk-based sizing |
-| Trade logging | **Partial** | Logs/Prometheus; no persistence | Journal now; trade DB later (P1) |
-| Performance tracking | **Partial** | MT5 history + journal | Dashboard later (P2) |
+| Trade logging | **Implemented** | `trade_log.py` JSONL + bridge `order_sent`/`filled` events, Prometheus | — |
+| Performance tracking | **Partial** | MT5 history + journal + JSONL trade log | Dashboard reader later (P2) |
 
 **Signal vs execution:** the application does **both**. It generates
 BUY/SELL/HOLD signals through the AI pipeline *and* — through a separate,
@@ -236,7 +237,7 @@ verdict is "supervised demo only" until the P0s are built.
 
 | Axis | Rating | Rationale |
 |---|---|---|
-| **Technical risk** | 🟢 Low | 370 hermetic tests, typed error taxonomy, fail-closed config, lazy imports, self-healing sync. Residual: bridge concurrency, no persisted order state. |
+| **Technical risk** | 🟢 Low | 382 hermetic tests, typed error taxonomy, fail-closed config, lazy imports, self-healing sync. Residual: bridge concurrency; open-position state lives only in MT5/sync snapshots (order events are persisted in the JSONL trade log). |
 | **Trading risk** | 🟠 High (until P0s) | Signal quality unproven out-of-sample; **no account-level limits**; fixed sizing; no dedup/kill switch. *Supervised* demo use keeps this acceptable — unattended use does not. |
 | **Security risk** | 🟢 Low | No committed secrets (`.env` git-ignored & untracked), no hardcoded credentials found, localhost-default bridge, optional token, SSRF allowlist, non-root Docker, optional API-key guard. Residual: token auth off by default (localhost assumption). |
 | **Operational risk** | 🟡 Medium | One Windows box runs terminal + service + bridge; MT5 IPC dies with the terminal; three processes to supervise; recovery is manual (restart order documented). |
@@ -261,7 +262,7 @@ verdict is "supervised demo only" until the P0s are built.
 | # | Problem | Why it matters | Proposed solution | Files | Complexity |
 |---|---|---|---|---|---|
 | P1-1 | Fixed lot size | Risk per trade uncontrolled across symbols | Risk-based sizing: `lots = (balance × risk%) ÷ (SL distance × pip value)`, symbol-aware | `signal_bridge.py` or new `app/broker/position_sizing.py` | Medium |
-| P1-2 | No persisted trade log | Reconstruction relies on the manual journal | Append-only JSONL/SQLite of every accepted/rejected signal + fill result; reconcile with MT5 history | new `app/broker/trade_log.py` + bridge wiring | Medium |
+| P1-2 | ~~No persisted trade log~~ | ~~Reconstruction relies on the manual journal~~ | **DONE:** append-only JSONL of every accepted/rejected signal + fill with P&L columns; reconciling against MT5 history still open | `app/broker/trade_log.py` + bridge `order_sent`/`filled` wiring | ✅ Done |
 | P1-3 | No pre-send margin check | Orders fail late with retcode 10019 | Check `margin_free` vs estimated margin before `order_send` | `mt5_executor.py` | Small |
 | P1-4 | No max-spread gate | News spikes execute at terrible prices | Compare `(ask−bid)` to `MT5_MAX_SPREAD_PIPS` pre-send | `mt5_executor.py` / bridge | Small |
 | P1-5 | No MT5 status in the service | Operator must tail three consoles | `/mt5/status` endpoint (connection, account snapshot, last signal, bridge health) + bridge metrics | `app/api/`, bridge script | Medium |
@@ -310,7 +311,7 @@ additions to `app/broker/` and the bridge script. The current design is
 
 ---
 
-*Audit basis: full repository inspection; `python -m pytest -q` → **370 passed**;
+*Audit basis: full repository inspection; `python -m pytest -q` → **382 passed**;
 `ruff check app tests scripts` → clean; no secrets found in tracked files;
 MT5 integration traced end-to-end (connection → data → graph → bridge → executor).*
 

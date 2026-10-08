@@ -75,6 +75,15 @@ Purpose: Version stamp on containers (compose ps).
 Required: No (default v1.0.0).
 Example: FOREXAI_VERSION=v1.0.0
 Where: Set by release; leave alone.
+
+Variable: TRADE_LOG_PATH
+Purpose: JSONL file where the AI service appends the trade audit trail
+  (signal_rejected / order_sent / filled / closed events, with realized P&L
+  columns populated on close).
+Required: No (default data/trade_log.jsonl inside the AI container).
+Example: TRADE_LOG_PATH=/app/data/trade_log.jsonl
+Where: Leave default — docker-compose bind-mounts ./forexai-ai/data to
+  /app/data, so the file survives image rebuilds and is readable on the host.
 ```
 
 ## B. Secrets (SENSITIVE — never share, never commit)

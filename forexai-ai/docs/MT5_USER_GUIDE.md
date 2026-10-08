@@ -332,7 +332,7 @@ python scripts/run_signal_bridge.py
                 ↓
       MT5 Demo Execution    (DRY-RUN by default → dual-key live)
                 ↓
-         Trade Logging      (structured logs + Prometheus + manual journal)
+         Trade Logging      (JSONL trade log + structured logs + Prometheus + manual journal)
                 ↓
      Performance Dashboard  (MT5 terminal + your journal — see gaps below)
 ```
@@ -342,15 +342,15 @@ python scripts/run_signal_bridge.py
 | Stage | Status | Evidence |
 |---|---|---|
 | MT5 demo account interface | ✅ Exists (external) | Your MT5 installation |
-| ForexAI service | ✅ Exists | `app/main.py`, 366 tests passing |
+| ForexAI service | ✅ Exists | `app/main.py`, 382 tests passing |
 | Market data (MT5 or cloud) | ✅ Exists | `mt5_market_data_provider.py`, `market_data_provider_factory.py` |
 | Technical / Fundamental / Quant agents | ✅ Exists | `app/agents/*`, LangGraph `forex_analysis_graph.py` |
 | Signal generation + explanation | ✅ Exists | `AiAnalysisResponse` + `explanation` block |
 | Risk gate (signal level) | ✅ Exists | `app/agents/risk_agent.py` (majority, veto, ATR exits) |
 | Trade decision | ✅ Exists | `app/agents/decision_agent.py` (`NO_TRADE` on failed risk) |
 | Bridge gates + execution | ✅ Exists (dry-run default) | `signal_bridge.py`, `mt5_executor.py` |
-| Trade logging (automated, persisted) | ⚠️ Partial — logs only | uvicorn/bridge consoles, Prometheus `/metrics`; **no trade DB** |
-| Performance dashboard | ❌ Not built | Use MT5 **Account History** + [`MT5_TRADE_JOURNAL.md`](MT5_TRADE_JOURNAL.md) |
+| Trade logging (automated, persisted) | ✅ Exists | `app/broker/trade_log.py` — append-only `data/trade_log.jsonl` (host-visible via compose) with `signal_rejected`/`order_sent`/`filled`/`closed` events + P&L columns; consoles + Prometheus too |
+| Performance dashboard | ❌ Not built (JSONL reader) | Raw events at `forexai-ai/data/trade_log.jsonl`; use MT5 **Account History** + [`MT5_TRADE_JOURNAL.md`](MT5_TRADE_JOURNAL.md) |
 | Position sizing by risk % | ❌ Not built | Fixed `MT5_SIGNAL_VOLUME` (0.01) |
 | Account-level limits (daily loss, max positions, kill switch) | ❌ Not built | See readiness report P0 list |
 | Duplicate-signal protection | ❌ Not built | One webhook POST = one order |
@@ -358,7 +358,8 @@ python scripts/run_signal_bridge.py
 
 **Practical consequence:** for your personal evaluation you do **not** need the
 missing pieces on day one — the MT5 terminal itself is the dashboard (balance,
-equity, positions, history), and the manual journal is the trade log. The missing
+equity, positions, history), and the automated JSONL trade log plus the manual
+journal record performance. The missing
 P0 items become mandatory only before you let the system run *unattended* in
 extended demo testing (see [`MT5_TESTING_PLAN.md`](MT5_TESTING_PLAN.md)).
 

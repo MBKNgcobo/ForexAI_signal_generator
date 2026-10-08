@@ -9,7 +9,7 @@
 ![CI](https://github.com/MBKNgcobo/ForexAI_signal_generator/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.14-blue?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-331%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-382%20passing-brightgreen)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)
 
 [Features](#features) · [Architecture](#architecture) · [API](#api) · [Quick start](#quick-start) · [Tests](#tests)
@@ -39,7 +39,9 @@ credentials, validates at the HTTP boundary, distinguishes *client error* from
 - **Validation at the boundary** — malformed symbols, timeframes and limits return `422` *before* any paid LLM or provider work happens (previously they surfaced as `500`s mid-flight).
 - **Typed error mapping** — `400` unsupported pair · `401` bad API key · `422` bad input · `502` unusable LLM output · `503` degraded dependency.
 - **Provider-agnostic LLM layer** — OpenRouter (with fallback models), OpenAI or any HTTP endpoint, behind one factory with a typed retry/error taxonomy.
-- **Hermetic test suite** — 331 tests, zero network access: market data, the LLM and the database are all faked.
+- **Hermetic test suite** — 382 tests, zero network access: market data, the LLM and the database are all faked.
+- **Persisted trade log** — every accepted/rejected signal, fill and paper close is appended to an audit JSONL (`data/trade_log.jsonl`, bind-mounted to the host by compose) with realized-P&L columns for downstream tooling.
+- **History Node gate** — a regime/volatility strategy object can block pairs and scale order volume before the risk gate ever sees the signal.
 - **Secure defaults** — optional `X-API-Key` guard, conditional CORS, non-root Docker image, health-check, secrets excluded from git *and* image layers.
 
 <a id="architecture"></a>
@@ -183,7 +185,7 @@ Never commit `.env` — it is ignored by `.gitignore` and `.dockerignore`.
 ## Tests
 
 ```powershell
-python -m pytest -q                 # 331 passed
+python -m pytest -q                 # 382 passed
 python -m pytest -q --cov=app       # with a coverage report
 ruff check app tests                # lint gate
 
@@ -200,8 +202,9 @@ database are all injected or monkeypatched, so CI needs no credentials and
 makes no network calls. Coverage spans API validation and the error contract,
 the risk and decision agents, response mapping, timestamp normalisation across
 all timeframes, the quant pipeline (feature engineering, target labelling, the
-ensemble and the sklearn inference contract), the market-data cache TTL, and
-the full graph round-trip.
+ensemble and the sklearn inference contract), the market-data cache TTL, the
+signal bridge (gating, drift guard, audit events), the History Node gate and
+trade-log P&L, and the full graph round-trip.
 
 Configuration lives in `pyproject.toml` (`testpaths`, `asyncio_mode = "auto"`,
 `pythonpath = ["."]`), lint rules live under `[tool.ruff]`, and
@@ -233,16 +236,17 @@ app/
   agents/        specialist nodes — market data, technical, fundamental, quant, risk, decision
   api/           routers, request validation, X-API-Key guard
   backtesting/   simple trade simulation engine
+  broker/        MT5 + paper executors, signal bridge, JSONL trade log
   data/          candle downloaders (generated CSVs are git-ignored)
   fundamentals/  World Bank clients + PostgreSQL RAG store
   graphs/        LangGraph composition of the six nodes
   llm/           provider factory, retry/fallback policy, typed error taxonomy
   models/        21-feature engineering, training and inference (LR / RF / XGBoost)
-  schemas/       pydantic request/response contracts
-  services/      Twelve Data provider, TTL cache, indicators, response mapper
-scripts/         manual data & ensemble checks (not collected by pytest)
-tests/           331-test hermetic suite + fakes
   observability/ request IDs, JSON log formatter, Prometheus metrics
+  schemas/       pydantic request/response contracts
+  services/      Twelve Data provider, TTL cache, indicators, response mapper, History Node
+scripts/         manual data & ensemble checks (not collected by pytest)
+tests/           382-test hermetic suite + fakes
 .github/         CI workflow (ruff + pytest on every push / PR)
 requirements-dev.txt  dev & CI tooling (ruff, pytest-cov)
 ```
