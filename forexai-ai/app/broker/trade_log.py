@@ -55,6 +55,14 @@ class TradeLogEntry:
     reason: str
     event_type: str = "filled"
 
+    # P&L auxiliary columns (paper / MT5 fills only). The dashboard uses
+    # `pnl` as the authoritative realized value; the legacy alias `profit`
+    # is mirrored through the record builder so existing consumers keep working.
+    pnl: float | None = None
+    pnl_basis: str | None = None
+    pnl_exit: float | None = None
+    profit: float | None = None
+
 
 def _default_path() -> str:
     from app.config import trade_log_path
@@ -91,6 +99,11 @@ def trade_log_append(log_path: str | Path, entry: TradeLogEntry) -> None:
         "volume": entry.volume,
         "spread_pips": entry.spread_pips,
         "reason": entry.reason,
+        # P&L columns
+        "pnl": entry.pnl,
+        "pnl_basis": entry.pnl_basis,
+        "pnl_exit": entry.pnl_exit,
+        "profit": entry.profit,
     }
 
     lock = _file_lock(path)

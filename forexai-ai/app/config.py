@@ -801,3 +801,114 @@ def paper_state_path() -> str:
         "data/paper_account.json"
     )
 
+
+@lru_cache(maxsize=1)
+def history_db_path() -> str:
+    """SQLite file for the History Node (``HISTORY_DB_PATH``)."""
+
+    return get_env("HISTORY_DB_PATH", "data/history.db") or (
+        "data/history.db"
+    )
+
+
+@lru_cache(maxsize=1)
+def history_short_hours() -> int:
+    """Short rolling lookback in hours (``HISTORY_SHORT_H``, default 24)."""
+
+    raw = get_env("HISTORY_SHORT_H", "24") or "24"
+
+    try:
+        parsed = int(float(raw))
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid HISTORY_SHORT_H=%r, using 24.", raw
+        )
+        return 24
+
+    return parsed if parsed > 0 else 24
+
+
+@lru_cache(maxsize=1)
+def history_medium_hours() -> int:
+    """Medium rolling lookback in hours (``HISTORY_MED_H``, default 72)."""
+
+    raw = get_env("HISTORY_MED_H", "72") or "72"
+
+    try:
+        parsed = int(float(raw))
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid HISTORY_MED_H=%r, using 72.", raw
+        )
+        return 72
+
+    return parsed if parsed > 0 else 72
+
+
+@lru_cache(maxsize=1)
+def history_long_hours() -> int:
+    """Long rolling lookback in hours (``HISTORY_LONG_H``, default 120)."""
+
+    raw = get_env("HISTORY_LONG_H", "120") or "120"
+
+    try:
+        parsed = int(float(raw))
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid HISTORY_LONG_H=%r, using 120.", raw
+        )
+        return 120
+
+    return parsed if parsed > 0 else 120
+
+
+@lru_cache(maxsize=1)
+def history_min_bars() -> int:
+    """Minimum bars for a pair to be eligible (``HISTORY_MIN_BARS``)."""
+
+    raw = get_env("HISTORY_MIN_BARS", "50") or "50"
+
+    try:
+        parsed = int(float(raw))
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid HISTORY_MIN_BARS=%r, using 50.", raw
+        )
+        return 50
+
+    return parsed if parsed > 0 else 50
+
+
+@lru_cache(maxsize=1)
+def history_max_pairs() -> int:
+    """Max pairs in allowed_pairs (``HISTORY_MAX_PAIRS``, default 4)."""
+
+    raw = get_env("HISTORY_MAX_PAIRS", "4") or "4"
+
+    try:
+        parsed = int(float(raw))
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid HISTORY_MAX_PAIRS=%r, using 4.", raw
+        )
+        return 4
+
+    return parsed if parsed > 0 else 4
+
+
+@lru_cache(maxsize=1)
+def history_symbols() -> list[str]:
+    """Universe for the History Node (``HISTORY_SYMBOLS``, CSV)."""
+
+    raw = get_env("HISTORY_SYMBOLS", "") or ""
+
+    symbols = [
+        part.strip().upper()
+        for part in raw.split(",")
+        if part.strip()
+    ]
+
+    return symbols
+
+
+

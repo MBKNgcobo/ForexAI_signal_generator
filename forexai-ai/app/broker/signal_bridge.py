@@ -35,16 +35,92 @@ from app.broker.mt5_executor import (
     OrderSide,
 )
 from app.broker.mt5_market_data_provider import MT5DataError
+from app.broker.trade_log import (
+    TradeLogEntry,
+    trade_log_append,
+    _default_path,
+)
 
 logger = logging.getLogger(__name__)
 
-EXECUTABLE_DIRECTIONS = {"BUY", "SELL"}
+
+def _today() -> str:
+    """Short date string for trade-log records."""
+    from datetime import date
+
+    return date.today().isoformat()
+
+
+def _now() -> str:
+    """Short time string for trade-log records."""
+    from datetime import datetime
+
+    return datetime.now().strftime("%H:%M:%S")
+
+
+def _is_paper_executor(executor: Any) -> bool:
+    """True when the bridge was wired with a paper broker."""
+    # Local import keeps the bridge importable without the paper broker's
+    # dependency tree and avoids any import-order cycles at module load.
+    from app.broker.paper_broker import PaperBroker
+
+    if isinstance(executor, PaperBroker):
+        return True
+
+    return isinstance(getattr(executor, "executor", None), PaperBroker)
+
+
+def _getenv(name: str, default: str | None = None) -> str | None:
+    """Dotenv-aware env read (loads ``.env``, strips whitespace/quoting)."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    return _strip_env(getenv(name, default))
+
+
+def _strip_env(raw: str | None) -> str | None:
+    """Strip whitespace and surrounding quotes from an env value."""
+    if raw is None:
+        return None
+    raw = raw.strip()
+    if len(raw) >= 2 and ((raw[0] == raw[-1] == "'") or (raw[0] == raw[-1] == '"')):
+        raw = raw[1:-1]
+    return raw
+
+
+def getenv(name: str, default: str | None = None) -> str | None:
+    """Read an env var, merging ``.env`` when present."""
+    from app.config import get_env as _getenv
+
+    return _getenv(name, default)
+
 
 EXECUTABLE_DIRECTIONS = {"BUY", "SELL"}
 
 
 class SignalRejectedError(ValueError):
     """The incoming signal is not safe/eligible to execute."""
+
+
+def _coerce_history(strategy: Any | None) -> dict | None:
+    """Normalise dict/StrategyObject/None to a dict (never raises)."""
+
+    if strategy is None:
+        return None
+
+    try:
+        if isinstance(strategy, dict):
+            return strategy
+
+        to_dict = getattr(strategy, "to_dict", None)
+
+        if callable(to_dict):
+            data = to_dict()
+            return data if isinstance(data, dict) else None
+
+        return None
+    except Exception:
+        return None
 
 
 def signal_token_valid(request_path: str, expected: str | None) -> bool:
@@ -73,11 +149,23 @@ def prepare_order_request(
     payload: Any,
     volume: float,
     min_confidence: float | None = None,
+    history_strategy: Any | None = None,
+    mode: str | None = None,
 ) -> OrderRequest:
     """Map an ``AiAnalysisResponse`` dict to an ``OrderRequest``.
 
     Pure: no terminal access, no I/O. Raises ``SignalRejectedError``
     for every gate failure with a human-readable reason.
+
+    ``history_strategy`` is the advisory History Node gate (dict or
+    StrategyObject): blocked pairs are refused and ``volume`` is scaled
+    by ``volume_multiplier``. ``None`` disables the gate (back-compat).
+
+    ``mode`` (``"paper"`` / ``"mt5"``) is the audit-trail label: when it
+    is given, the accepted signal is appended to the JSONL trade log as
+    an ``order_sent`` event so the dashboard keeps a P&L-ready history.
+    ``None`` keeps the function side-effect free (unit tests, callers
+    that log elsewhere).
     """
 
     if not isinstance(payload, dict):
@@ -91,6 +179,31 @@ def prepare_order_request(
 
     if not symbol or not isinstance(symbol, str):
         raise SignalRejectedError("payload is missing 'symbol'.")
+
+    history = _coerce_history(history_strategy)
+
+    if history is not None:
+        allowed = history.get("allowed_pairs") or []
+        blocked = history.get("blocked_pairs") or {}
+
+        if allowed and "*" not in allowed and symbol not in allowed:
+            detail = blocked.get(symbol, "not in allowed_pairs")
+            raise SignalRejectedError(
+                f"HistoryNode blocks {symbol}: {detail}."
+            )
+
+        if symbol in blocked and "*" in allowed:
+            raise SignalRejectedError(
+                f"HistoryNode blocks {symbol}: {blocked.get(symbol)}."
+            )
+
+        try:
+            multiplier = float(history.get("volume_multiplier", 1.0))
+        except (TypeError, ValueError):
+            multiplier = 1.0
+
+        multiplier = min(1.0, max(0.25, multiplier))
+        volume = volume * multiplier
 
     direction = str(decision.get("direction") or "").upper()
 
@@ -138,7 +251,7 @@ def prepare_order_request(
     comment = f"sig {direction} {timeframe}"[:31]
 
     try:
-        return OrderRequest(
+        order = OrderRequest(
             symbol=symbol,
             side=side,
             order_kind=OrderKind.MARKET,
@@ -148,7 +261,35 @@ def prepare_order_request(
             comment=comment,
         )
     except ValueError as exc:
-        raise SignalRejectedError(f"signal failed validation: {exc}")
+        raise SignalRejectedError(f"signal failed validation: {exc}") from exc
+
+    # Record the accepted signal to the JSONL trade log so the dashboard
+    # has a persistent, P&L-ready audit trail even before the order fills.
+    if mode is not None:
+        trade_log_append(
+            _default_path(),
+            TradeLogEntry(
+                date=_today(),
+                time=_now(),
+                mode=mode,
+                symbol=symbol,
+                direction=direction,
+                ticket=0,
+                price=float(entry),
+                sl=float(order.sl),
+                tp=float(order.tp),
+                volume=float(order.volume),
+                spread_pips=0.0,
+                reason=f"order_sent ({direction})",
+                event_type="order_sent",
+                pnl=None,
+                pnl_basis=None,
+                pnl_exit=None,
+                profit=None,
+            ),
+        )
+
+    return order
 
 
 class SignalBridge:
@@ -173,12 +314,39 @@ class SignalBridge:
         min_confidence: float | None = 0.0,
         max_entry_drift_points: float = 100.0,
         price_source: Any | None = None,
+        history_strategy: Any | None = None,
+        history_node: Any | None = None,
     ) -> None:
         self.executor = executor
         self.volume = volume
         self.min_confidence = min_confidence
         self.max_entry_drift_points = max_entry_drift_points
         self.price_source = price_source
+        self.history_strategy = history_strategy
+        self.history_node = history_node
+
+    def _resolve_history(self, payload: Any) -> Any | None:
+        if isinstance(payload, dict):
+            embedded = payload.get("history_context")
+
+            if embedded is not None:
+                return embedded
+
+        if self.history_strategy is not None:
+            return self.history_strategy
+
+        if self.history_node is not None:
+            try:
+                getter = getattr(self.history_node, "get_strategy_safe", None)
+
+                if callable(getter):
+                    return getter()
+
+                return self.history_node
+            except Exception:
+                return None
+
+        return None
 
     def prepare(self, payload: Any) -> OrderRequest:
         """Gate + map a payload (no terminal access)."""
@@ -187,6 +355,8 @@ class SignalBridge:
             payload,
             volume=self.volume,
             min_confidence=self.min_confidence,
+            history_strategy=self._resolve_history(payload),
+            mode="paper" if _is_paper_executor(self.executor) else "mt5",
         )
 
     def _current_price(self, symbol: str, side: OrderSide) -> tuple[
@@ -253,6 +423,36 @@ class SignalBridge:
             self.check_entry_drift(req, float(entry))
 
         result = self.executor.send(req, dry_run=dry_run)
+
+        # Record the fill to the trade log (paper simulated fills / MT5 live
+        # fills).  On dry-run the order was never sent, so nothing is logged;
+        # the ``closed`` event carries P&L for real fills.  Paper mode writes
+        # its own ``filled`` event inside PaperBroker.send(), so only MT5
+        # fills are recorded here (paper's send() is always dry_run=True and
+        # therefore never reaches this branch).
+        if not result.dry_run:
+            trade_log_append(
+                _default_path(),
+                TradeLogEntry(
+                    date=_today(),
+                    time=_now(),
+                    mode="paper" if _is_paper_executor(self.executor) else "mt5",
+                    symbol=req.symbol,
+                    direction=req.side.value.upper(),
+                    ticket=result.ticket or 0,
+                    price=result.filled_price or 0.0,
+                    sl=float(req.sl) if req.sl is not None else 0.0,
+                    tp=float(req.tp) if req.tp is not None else 0.0,
+                    volume=float(req.volume) if req.volume is not None else 0.0,
+                    spread_pips=0.0,
+                    reason=result.comment or f"filled ({req.symbol})",
+                    event_type="filled",
+                    pnl=None,
+                    pnl_basis=None,
+                    pnl_exit=None,
+                    profit=None,
+                ),
+            )
 
         logger.info(
             "Signal %s %s -> %s (dry_run=%s ticket=%s)",

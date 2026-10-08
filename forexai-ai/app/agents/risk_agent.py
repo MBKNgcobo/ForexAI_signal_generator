@@ -259,6 +259,40 @@ def run_risk_agent(
     )
 
     # --------------------------------------------------------------
+    # History Node gate (advisory, fail-open to existing logic).
+    # --------------------------------------------------------------
+
+    history_context = state.get("history_context") or {}
+    history_symbol = state.get("symbol")
+    history_blocked_reason: str | None = None
+    history_multiplier = 1.0
+
+    if isinstance(history_context, dict) and history_context:
+        try:
+            blocked = history_context.get("blocked_pairs") or {}
+            allowed = history_context.get("allowed_pairs") or []
+
+            if history_symbol and isinstance(blocked, dict):
+                history_blocked_reason = blocked.get(history_symbol)
+
+            if (
+                history_symbol
+                and allowed
+                and "*" not in allowed
+                and history_symbol not in allowed
+                and history_blocked_reason is None
+            ):
+                history_blocked_reason = "not in allowed_pairs"
+
+            history_multiplier = float(
+                history_context.get("volume_multiplier", 1.0)
+            )
+            history_multiplier = min(1.0, max(0.25, history_multiplier))
+        except (TypeError, ValueError):
+            history_blocked_reason = None
+            history_multiplier = 1.0
+
+    # --------------------------------------------------------------
     # Initial approval.
     #
     # We require a directional majority from the agents.
@@ -293,6 +327,11 @@ def run_risk_agent(
         and quant_has_strong_confidence
     ):
 
+        approved = False
+
+    # History Node is a gatekeeper: a blocked pair vetoes approval,
+    # but it never forces a trade on its own.
+    if approved and history_blocked_reason is not None:
         approved = False
 
     # --------------------------------------------------------------
@@ -429,6 +468,20 @@ def run_risk_agent(
             "dominant specialist direction."
         )
 
+    if history_blocked_reason is not None:
+
+        reason_parts.append(
+            f"HistoryNode gate blocks this pair: "
+            f"{history_blocked_reason}."
+        )
+
+    if history_multiplier < 1.0:
+
+        reason_parts.append(
+            f"HistoryNode volume multiplier "
+            f"{history_multiplier:.2f} applies."
+        )
+
     if not approved:
 
         reason_parts.append(
@@ -475,5 +528,9 @@ def run_risk_agent(
             "dominant_direction": (
                 dominant_direction
             ),
+
+            "history_blocked_reason": history_blocked_reason,
+
+            "history_volume_multiplier": history_multiplier,
         }
     }

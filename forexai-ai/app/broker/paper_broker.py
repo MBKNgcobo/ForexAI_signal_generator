@@ -655,6 +655,10 @@ class PaperBroker:
                 spread_pips=pos.spread_pips,
                 reason=f"paper closed ({pnl:+.2f})",
                 event_type="closed",
+                pnl=pnl,
+                pnl_basis="paper",
+                pnl_exit=exit_price,
+                profit=pnl,
             ),
         )
 

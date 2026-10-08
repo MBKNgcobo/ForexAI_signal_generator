@@ -13,6 +13,10 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -22,6 +26,19 @@ logger = logging.getLogger("check_mt5_market_data")
 
 # Running as a file puts scripts/ (not the repo root) on sys.path.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+
+def _getenv(name: str) -> str | None:
+    """Env value with surrounding whitespace/quotes stripped."""
+
+    raw = os.getenv(name)
+
+    if raw is None:
+        return None
+
+    cleaned = raw.strip().strip("\"'").strip()
+
+    return cleaned or None
 
 
 def _parse_args() -> argparse.Namespace:
@@ -46,10 +63,10 @@ async def _run(args: argparse.Namespace) -> int:
         MT5MarketDataProvider,
     )
 
-    login = args.login or os.getenv("MT5_LOGIN")
-    password = args.password or os.getenv("MT5_PASSWORD")
-    server = args.server or os.getenv("MT5_SERVER")
-    path = args.path or os.getenv("MT5_PATH")
+    login = args.login or _getenv("MT5_LOGIN")
+    password = args.password or _getenv("MT5_PASSWORD")
+    server = args.server or _getenv("MT5_SERVER")
+    path = args.path or _getenv("MT5_PATH")
 
     if not login and not password and not server:
         # Attach mode: reuse the terminal's active (logged-in) session.

@@ -48,6 +48,12 @@ MARKET_DATA_CACHE_TOTAL = Counter(
     ["result"],
 )
 
+HISTORY_REFRESH_TOTAL = Counter(
+    "forexai_history_refresh_total",
+    "History Node refreshes/reads, by outcome.",
+    ["result"],
+)
+
 
 def record_cache_lookup(*, hit: bool) -> None:
     """Increment the cache HIT/MISS counter (safe to call from services)."""

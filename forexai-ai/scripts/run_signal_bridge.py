@@ -147,8 +147,6 @@ def _build_bridge(args: argparse.Namespace, mode: str):
             max_entry_drift_points=args.max_drift_points,
             price_source=source,
         )
-        bridge_executor_kind = "paper"
-        bridge_executor_kind = "paper"
     else:
         from app.broker.mt5_executor import MT5TradeExecutor
 
@@ -157,10 +155,12 @@ def _build_bridge(args: argparse.Namespace, mode: str):
         )
         bridge = SignalBridge(
             executor=executor,
-        volume=_resolve_volume(args),
-        min_confidence=args.min_confidence,
-        max_entry_drift_points=args.max_drift_points,
-    )
+            volume=_resolve_volume(args),
+            min_confidence=args.min_confidence,
+            max_entry_drift_points=args.max_drift_points,
+        )
+
+    return bridge
 
 
 def _make_handler(bridge, dry_run, token: str | None):
@@ -250,7 +250,7 @@ def main() -> int:
             args.host,
         )
 
-    bridge = _build_bridge(args)
+    bridge = _build_bridge(args, _resolve_mode(args))
     dry_run = None if args.live else True
 
     server = ThreadingHTTPServer(

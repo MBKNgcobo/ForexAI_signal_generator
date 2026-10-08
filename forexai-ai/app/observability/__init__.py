@@ -4,6 +4,7 @@ from app.observability.context import get_request_id, set_request_id
 from app.observability.logging_config import JsonFormatter, formatter_for
 from app.observability.metrics import (
     GRAPH_NODE_DURATION_SECONDS,
+    HISTORY_REFRESH_TOTAL,
     HTTP_REQUEST_DURATION_SECONDS,
     HTTP_REQUESTS_TOTAL,
     LLM_FAILURES_TOTAL,
@@ -17,6 +18,7 @@ from app.observability.metrics import (
 
 __all__ = [
     "GRAPH_NODE_DURATION_SECONDS",
+    "HISTORY_REFRESH_TOTAL",
     "HTTP_REQUEST_DURATION_SECONDS",
     "HTTP_REQUESTS_TOTAL",
     "LLM_FAILURES_TOTAL",

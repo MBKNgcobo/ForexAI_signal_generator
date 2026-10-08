@@ -12,6 +12,7 @@ from app.agents.market_data_agent import run_market_data_agent
 from app.agents.quant_agent import run_quant_agent
 from app.agents.risk_agent import run_risk_agent
 from app.agents.technical_agent import TechnicalAgent
+from app.services.history_node import run_history_gate
 
 from app.fundamentals.service import FundamentalRAGService
 from app.llm.llm_provider import LLMProvider
@@ -60,6 +61,7 @@ class ForexAnalysisState(TypedDict, total=False):
     fundamental_analysis: dict
     quant_prediction: dict
 
+    history_context: dict
     risk_assessment: dict
     final_decision: dict
 
@@ -105,6 +107,11 @@ def build_forex_analysis_graph(
     )
 
     graph.add_node(
+        "history_gate",
+        timed_node("history_gate", run_history_gate),
+    )
+
+    graph.add_node(
         "risk_assessment",
         timed_node("risk_assessment", run_risk_agent),
     )
@@ -132,6 +139,16 @@ def build_forex_analysis_graph(
     graph.add_edge(
         "market_data",
         "quant_prediction",
+    )
+
+    graph.add_edge(
+        "market_data",
+        "history_gate",
+    )
+
+    graph.add_edge(
+        "history_gate",
+        "risk_assessment",
     )
 
     graph.add_edge(
