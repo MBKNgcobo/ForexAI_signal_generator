@@ -2,7 +2,45 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.config import quant_threshold
+from app.config import quant_threshold, signal_entry_spread_pips
+
+
+def _apply_entry_spread(
+    price: float,
+    direction: str,
+    symbol: str,
+) -> float:
+    """Shift the entry by half the spread in the trade direction (SQA C-04).
+
+    A live fill is not the mid/close: a BUY is filled at the ask (higher) and a
+    SELL at the bid (lower). Charging half the configured spread to the entry
+    makes the emitted signal, and the risk:reward derived from it, match the
+    friction-inclusive assumptions the quant gate was validated on, instead of
+    the frictionless close that would overstate R:R.
+
+    Pip size is derived from the instrument's precision (5 digits -> pip =
+    0.0001, 3-digit JPY -> pip = 0.01), reusing the tracking layer's helper so
+    live signals and the paper/MT5 execution agree on pip math. A zero/unknown
+    spread returns the price unchanged (frictionless).
+    """
+
+    half_spread_pips = signal_entry_spread_pips() / 2.0
+
+    if half_spread_pips <= 0:
+        return price
+
+    from app.services.signal_tracking.models import instrument_precision
+
+    pip_size = 10.0 ** (-instrument_precision(symbol)) * 10.0
+    shift = pip_size * half_spread_pips
+
+    if direction == "BUY":
+        return price + shift
+
+    if direction == "SELL":
+        return price - shift
+
+    return price
 
 
 # ------------------------------------------------------------------
@@ -405,7 +443,16 @@ def run_risk_agent(
             * TAKE_PROFIT_ATR_MULTIPLIER
         )
 
-        entry_price = current_price
+        # Barriers are anchored to the raw reference price (the intent), but
+        # the ENTRY is shifted by half the spread in the trade direction so the
+        # emitted signal reflects a realistic fill and the risk:reward matches
+        # the friction-inclusive backtest (SQA C-04). A BUY fills at the ask
+        # (higher), a SELL at the bid (lower); SL/TP stay as intended.
+        entry_price = _apply_entry_spread(
+            current_price,
+            dominant_direction,
+            state.get("symbol", ""),
+        )
 
         if dominant_direction == "BUY":
 
@@ -431,9 +478,20 @@ def run_risk_agent(
                 - reward_distance
             )
 
+        # Risk:reward from the spread-adjusted entry to each barrier, so a
+        # costlier fill shows the honest (lower) ratio rather than the
+        # frictionless multiplier ratio.
+        if dominant_direction == "BUY":
+            effective_risk = entry_price - stop_loss
+            effective_reward = take_profit - entry_price
+        else:
+            effective_risk = stop_loss - entry_price
+            effective_reward = entry_price - take_profit
+
         risk_reward = (
-            reward_distance
-            / risk_distance
+            effective_reward / effective_risk
+            if effective_risk > 0
+            else reward_distance / risk_distance
         )
 
     # --------------------------------------------------------------

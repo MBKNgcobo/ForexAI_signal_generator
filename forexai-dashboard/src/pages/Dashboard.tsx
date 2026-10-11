@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -87,11 +88,20 @@ function Dashboard() {
   // LOAD MARKET DATA
   // ============================================================
 
+  // Latest-wins guards (F-02): a slow response from a previous
+  // symbol/timeframe/poll must never overwrite fresher data, and the
+  // in-flight run alone owns the loading/error state.
+  const marketDataRequestRef = useRef(0);
+  const analyzeRequestRef = useRef(0);
+
   async function loadMarketData() {
 
     if (!symbol || !timeframe) {
       return;
     }
+
+    const requestId = marketDataRequestRef.current + 1;
+    marketDataRequestRef.current = requestId;
 
     setMarketDataLoading(true);
     setMarketDataError(null);
@@ -109,6 +119,10 @@ function Dashboard() {
         data
       );
 
+      if (requestId !== marketDataRequestRef.current) {
+        return;
+      }
+
       setMarketData(data);
 
     } catch (err) {
@@ -117,6 +131,10 @@ function Dashboard() {
         "Market data error:",
         err
       );
+
+      if (requestId !== marketDataRequestRef.current) {
+        return;
+      }
 
       setMarketData(null);
 
@@ -128,7 +146,9 @@ function Dashboard() {
 
     } finally {
 
-      setMarketDataLoading(false);
+      if (requestId === marketDataRequestRef.current) {
+        setMarketDataLoading(false);
+      }
 
     }
   }
@@ -287,6 +307,12 @@ function Dashboard() {
       return;
     }
 
+    // Latest-wins guard (F-02): clicking twice before React re-renders
+    // (button not yet disabled) starts two analyses; only the newest
+    // run may settle the result/error/loading state.
+    const requestId = analyzeRequestRef.current + 1;
+    analyzeRequestRef.current = requestId;
+
     setLoading(true);
     setError(null);
     setResult(null);
@@ -305,6 +331,10 @@ function Dashboard() {
         data
       );
 
+      if (requestId !== analyzeRequestRef.current) {
+        return;
+      }
+
       setResult(data);
 
     } catch (err) {
@@ -314,6 +344,10 @@ function Dashboard() {
         err
       );
 
+      if (requestId !== analyzeRequestRef.current) {
+        return;
+      }
+
       setError(
         err instanceof Error
           ? err.message
@@ -322,7 +356,9 @@ function Dashboard() {
 
     } finally {
 
-      setLoading(false);
+      if (requestId === analyzeRequestRef.current) {
+        setLoading(false);
+      }
 
     }
   }

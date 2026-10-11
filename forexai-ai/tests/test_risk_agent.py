@@ -128,14 +128,18 @@ def test_quant_holding_does_not_block_majority():
     assert assessment["approved"] is True
 
 
-def test_trade_parameters_follow_atr_multipliers_for_buy():
+def test_trade_parameters_follow_atr_multipliers_for_buy(monkeypatch):
+
+    from app.config import signal_entry_spread_pips
+
+    monkeypatch.setenv("SIGNAL_ENTRY_SPREAD_PIPS", "1.5")
+    signal_entry_spread_pips.cache_clear()
 
     assessment = run_risk_agent(
         _state(current_price=1.1000, atr=0.0020)
     )["risk_assessment"]
 
-    assert assessment["entry_price"] == 1.1000
-
+    # Barriers are anchored to the raw reference price (the intent).
     assert assessment["stop_loss"] == pytest.approx(
         1.1000 - (0.0020 * STOP_LOSS_ATR_MULTIPLIER)
     )
@@ -144,9 +148,66 @@ def test_trade_parameters_follow_atr_multipliers_for_buy():
         1.1000 + (0.0020 * TAKE_PROFIT_ATR_MULTIPLIER)
     )
 
+    # The entry is shifted by half the spread (a BUY fills at the ask, i.e.
+    # higher than the mid), so it sits above the raw 1.1000 reference.
+    half_spread = 0.0001 * (1.5 / 2.0)  # 5-digit pair, pip = 0.0001
+    assert assessment["entry_price"] == pytest.approx(1.1000 + half_spread)
+
+    # Risk:reward is computed from the spread-adjusted entry, so a costlier
+    # fill yields an honest ratio slightly below the frictionless 1.5.
+    assert assessment["risk_reward"] == pytest.approx(
+        (assessment["take_profit"] - assessment["entry_price"])
+        / (assessment["entry_price"] - assessment["stop_loss"])
+    )
+    assert assessment["risk_reward"] < (
+        TAKE_PROFIT_ATR_MULTIPLIER / STOP_LOSS_ATR_MULTIPLIER
+    )
+
+
+def test_zero_spread_keeps_frictionless_entry(monkeypatch):
+
+    from app.config import signal_entry_spread_pips
+
+    monkeypatch.setenv("SIGNAL_ENTRY_SPREAD_PIPS", "0")
+    signal_entry_spread_pips.cache_clear()
+
+    assessment = run_risk_agent(
+        _state(current_price=1.1000, atr=0.0020)
+    )["risk_assessment"]
+
+    # With the spread disabled the entry is the raw close and R:R is exactly
+    # the multiplier ratio - the previous frictionless behaviour, still
+    # available for callers that want it.
+    assert assessment["entry_price"] == pytest.approx(1.1000)
     assert assessment["risk_reward"] == pytest.approx(
         TAKE_PROFIT_ATR_MULTIPLIER / STOP_LOSS_ATR_MULTIPLIER
     )
+
+
+def test_sell_entry_is_shifted_down_by_half_spread(monkeypatch):
+
+    from app.config import signal_entry_spread_pips
+
+    monkeypatch.setenv("SIGNAL_ENTRY_SPREAD_PIPS", "1.5")
+    signal_entry_spread_pips.cache_clear()
+
+    assessment = run_risk_agent(
+        _state(
+            technical_direction="SELL",
+            fundamental_direction="SELL",
+            quant_direction="SELL",
+            current_price=1.1000,
+            atr=0.0020,
+        )
+    )["risk_assessment"]
+
+    half_spread = 0.0001 * (1.5 / 2.0)
+
+    # A SELL fills at the bid (lower than mid), so the entry sits below 1.1000
+    # while the barriers stay anchored above/below the reference.
+    assert assessment["entry_price"] == pytest.approx(1.1000 - half_spread)
+    assert assessment["stop_loss"] > assessment["entry_price"]
+    assert assessment["take_profit"] < assessment["entry_price"]
 
 
 def test_trade_parameters_invert_for_sell():

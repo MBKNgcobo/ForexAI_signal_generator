@@ -105,21 +105,9 @@ class EnsembleQuantModel(QuantModel):
 
         total_weight = 0.0
 
-        for model in self.models:
-
-            model_name = (
-                self._get_model_name(model)
-            )
-
-            weight = (
-                self.model_weights[model_name]
-            )
-
-            probabilities = (
-                model.predict_probabilities(
-                    features
-                )
-            )
+        for _model_name, weight, probabilities in self._member_probabilities(
+            features
+        ):
 
             for direction in DIRECTIONS:
 
@@ -145,6 +133,37 @@ class EnsembleQuantModel(QuantModel):
             for direction, probability
             in ensemble_probabilities.items()
         }
+
+    def _member_probabilities(
+        self,
+        features: pd.DataFrame,
+    ) -> list[tuple[str, float, dict[str, float]]]:
+        """Run each member once and return ``(name, weight, probabilities)``.
+
+        Single source of the per-member probabilities so ``predict`` and
+        ``predict_probabilities`` never run a member twice (SQA C-06). A
+        ``SklearnQuantModel`` computes its class probabilities inside both
+        ``predict`` and ``predict_probabilities``; calling it once here halves
+        the live inference cost (the RandomForest artifact is ~43 MB).
+        """
+
+        members: list[tuple[str, float, dict[str, float]]] = []
+
+        for model in self.models:
+
+            model_name = self._get_model_name(model)
+
+            weight = self.model_weights[model_name]
+
+            members.append(
+                (
+                    model_name,
+                    weight,
+                    model.predict_probabilities(features),
+                )
+            )
+
+        return members
 
     def _calculate_model_agreement(
         self,
@@ -181,25 +200,64 @@ class EnsembleQuantModel(QuantModel):
         features: pd.DataFrame,
     ) -> QuantPrediction:
 
+        # One pass over the members (SQA C-06): reuse the probabilities to
+        # build both the per-member predictions and the blended result, so a
+        # member is never asked to infer twice per call.
+        members = self._member_probabilities(features)
+
         model_predictions: list[
             QuantPrediction
         ] = []
 
-        for model in self.models:
+        ensemble_probabilities = {
+            direction: 0.0
+            for direction in DIRECTIONS
+        }
 
-            prediction = model.predict(
-                features
+        total_weight = 0.0
+
+        for model_name, weight, probabilities in members:
+
+            # Derive this member's prediction from the probabilities we
+            # already have instead of calling model.predict() again.
+            member_direction = max(
+                probabilities,
+                key=probabilities.get,
             )
 
             model_predictions.append(
-                prediction
+                QuantPrediction(
+                    direction=member_direction,
+                    probability=probabilities[member_direction],
+                    model_name=model_name,
+                    probabilities=probabilities,
+                )
             )
 
-        probabilities = (
-            self.predict_probabilities(
-                features
+            for direction in DIRECTIONS:
+
+                ensemble_probabilities[
+                    direction
+                ] += (
+                    probabilities[direction]
+                    * weight
+                )
+
+            total_weight += weight
+
+        if total_weight <= 0:
+
+            raise RuntimeError(
+                "Total ensemble weight "
+                "must be greater than zero."
             )
-        )
+
+        probabilities = {
+            direction:
+                probability / total_weight
+            for direction, probability
+            in ensemble_probabilities.items()
+        }
 
         direction = max(
             probabilities,

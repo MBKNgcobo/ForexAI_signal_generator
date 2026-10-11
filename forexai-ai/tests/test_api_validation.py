@@ -133,7 +133,16 @@ def test_market_data_service_is_reused_between_requests(monkeypatch):
 
 def test_missing_market_data_key_returns_503(client, monkeypatch):
 
+    from app.services.market_data_provider_factory import (
+        reset_shared_market_data_service,
+    )
+
+    # Delete the key and drop any provider singleton built with it, so the
+    # route rebuilds from the now-empty environment and degrades to 503
+    # instead of reusing a cached provider (which, before the hermetic
+    # conftest fixture, held the real .env key and hit the live API).
     monkeypatch.delenv("TWELVE_DATA_API_KEY", raising=False)
+    reset_shared_market_data_service()
 
     response = client.get(
         "/market-data/EURUSD",
@@ -241,3 +250,57 @@ def test_guard_accepts_correct_key(client, api_key_guard):
 
     # Auth passed; the request then fails validation as expected.
     assert response.status_code == 400
+
+
+def test_signals_dashboard_page_renders(client):
+    """The server-rendered dashboard must import and serve a real page.
+
+    Regression guard for SQA C-01: ``app/api/signals_page.py`` once had an
+    unclosed ``PAGE_HEAD`` string with the body ``<div>`` fragments left at
+    module top level, making the module unimportable. The route imports it
+    lazily, so only exercising the endpoint (not just importing the app)
+    catches a broken page.
+    """
+
+    response = client.get("/signals/dashboard")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "<!doctype html>" in body.lower()
+    # The polling script targets these element ids; their absence means the
+    # page cannot render live data.
+    assert 'id="active"' in body
+    assert 'id="history"' in body
+
+
+def test_missing_market_data_key_makes_no_network_call(client, monkeypatch):
+    """A missing provider key must fail closed with zero network egress.
+
+    Defence-in-depth for SQA C-02: before the hermetic conftest fixture, this
+    scenario hit the live Twelve Data API with the real .env key (leaking it
+    into logs) because the background signal monitor built the shared
+    provider singleton first. Blocking socket connections proves the request
+    degrades to 503 locally instead of reaching any third party.
+    """
+
+    import socket
+
+    from app.services.market_data_provider_factory import (
+        reset_shared_market_data_service,
+    )
+
+    monkeypatch.delenv("TWELVE_DATA_API_KEY", raising=False)
+    reset_shared_market_data_service()
+
+    def _blocked(*args, **kwargs):
+        raise AssertionError("unexpected outbound network connection")
+
+    monkeypatch.setattr(socket.socket, "connect", _blocked, raising=True)
+
+    response = client.get(
+        "/market-data/EURUSD",
+        params={"timeframe": "FifteenMinutes"},
+    )
+
+    assert response.status_code == 503
+    assert "TWELVE_DATA_API_KEY" in response.json()["detail"]

@@ -1,4 +1,5 @@
 import json
+import re
 
 from app.fundamentals.service import (
     FundamentalRAGService,
@@ -7,6 +8,61 @@ from app.llm.llm_provider import (
     LLMProvider,
 )
 from app.services.confidence_calibration import calibrate_confidence
+
+
+# Tokens the LLM might cite that we can deterministically check against the
+# supplied evidence (SQA C-07). Indicator codes are dot/underscore codes like
+# ``NY.GDP.MKTP.KD.ZG`` or ``BIS.CBPOL.D``; observation dates are ISO-ish
+# ``YYYY-MM-DD``. If the narrative cites one of these that is NOT in the
+# evidence set, the model fabricated it - we must not trust the output.
+_INDICATOR_CODE_RE = re.compile(
+    r"\b[A-Z]{2,6}(?:[._][A-Z0-9]{1,12}){1,4}\b"
+)
+_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+
+
+def _grounding_violation(
+    analysis: dict,
+    evidence: list[dict],
+) -> bool:
+    """True when the LLM cites an indicator code or date absent from evidence.
+
+    Conservative by design: it only flags *structured* tokens (indicator codes,
+    ISO dates) that the prompt explicitly shows the model. Paraphrased prose is
+    never penalised, so a well-grounded but differently-worded answer still
+    passes. A missing/short evidence set is not treated as a violation (the
+    caller handles "no evidence" separately).
+    """
+
+    if not evidence:
+        return False
+
+    known_codes = {
+        str(item.get("indicator_code") or "").strip().upper()
+        for item in evidence
+        if item.get("indicator_code")
+    }
+    known_dates = {
+        str(item.get("observation_date") or "").strip()[:10]
+        for item in evidence
+        if item.get("observation_date")
+    }
+
+    text_parts = [str(analysis.get("summary") or "")]
+    reasoning = analysis.get("reasoning")
+    if isinstance(reasoning, list):
+        text_parts.extend(str(part) for part in reasoning)
+    text = " ".join(text_parts)
+
+    for match in _INDICATOR_CODE_RE.finditer(text):
+        if match.group(0).upper() not in known_codes:
+            return True
+
+    for match in _DATE_RE.finditer(text):
+        if match.group(0) not in known_dates:
+            return True
+
+    return False
 
 
 class FundamentalAgent:
@@ -67,16 +123,28 @@ class FundamentalAgent:
         # on the contract field, raw value kept for audit.
         raw_confidence = analysis["confidence"]
 
+        # SQA C-07: never blindly trust the LLM. If the narrative cites an
+        # indicator code or observation date that is NOT in the supplied
+        # evidence, the model fabricated it. We do not raise (one stray token
+        # should not discard an otherwise-valid read) but we zero the
+        # calibrated confidence and flag it so downstream treats this as
+        # ungrounded rather than a confident fundamental view.
+        grounded = not _grounding_violation(analysis, evidence)
+
+        calibrated_confidence = (
+            calibrate_confidence(raw_confidence, "fundamental")
+            if grounded
+            else 0.0
+        )
+
         return {
             "fundamental_analysis": {
                 "symbol": symbol,
                 "timeframe": timeframe,
                 "direction": analysis["direction"],
-                "confidence": calibrate_confidence(
-                    raw_confidence,
-                    "fundamental",
-                ),
+                "confidence": calibrated_confidence,
                 "raw_confidence": raw_confidence,
+                "grounded": grounded,
                 "summary": analysis["summary"],
                 "reasoning": analysis["reasoning"],
                 "evidence": evidence,

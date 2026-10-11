@@ -316,6 +316,7 @@ class SignalBridge:
         price_source: Any | None = None,
         history_strategy: Any | None = None,
         history_node: Any | None = None,
+        volume_sizer: Any | None = None,
     ) -> None:
         self.executor = executor
         self.volume = volume
@@ -324,6 +325,9 @@ class SignalBridge:
         self.price_source = price_source
         self.history_strategy = history_strategy
         self.history_node = history_node
+        # Optional per-signal sizer (SQA C-05): a callable ``(payload, fixed) ->
+        # volume``. When None the fixed ``volume`` is used (existing behaviour).
+        self.volume_sizer = volume_sizer
 
     def _resolve_history(self, payload: Any) -> Any | None:
         if isinstance(payload, dict):
@@ -351,9 +355,27 @@ class SignalBridge:
     def prepare(self, payload: Any) -> OrderRequest:
         """Gate + map a payload (no terminal access)."""
 
+        volume = self.volume
+
+        # Risk-based sizing (SQA C-05): when a sizer is configured it turns the
+        # signal's own entry/stop into a lot size that risks a fixed % of the
+        # configured equity. The sizer is responsible for returning the fixed
+        # ``volume`` unchanged when RISK_PERCENT is 0 (default) or the payload
+        # lacks the levels to size, so this never changes the default path.
+        if self.volume_sizer is not None and isinstance(payload, dict):
+            try:
+                volume = float(self.volume_sizer(payload, self.volume))
+            except Exception as exc:  # noqa: BLE001 - sizing must never break flow
+                logger.warning(
+                    "Volume sizer failed; using fixed %.2f: %s",
+                    self.volume,
+                    exc,
+                )
+                volume = self.volume
+
         return prepare_order_request(
             payload,
-            volume=self.volume,
+            volume=volume,
             min_confidence=self.min_confidence,
             history_strategy=self._resolve_history(payload),
             mode="paper" if _is_paper_executor(self.executor) else "mt5",
@@ -421,6 +443,23 @@ class SignalBridge:
 
         if entry is not None:
             self.check_entry_drift(req, float(entry))
+
+        # Persistent accepted-signal tracking: the gates above passed, so
+        # this signal is accepted by the existing mechanism. Record it
+        # idempotently (never raises; tracking never breaks order flow).
+        try:
+            from app.services.signal_tracking.bridge_hook import (
+                record_bridge_acceptance,
+            )
+
+            record_bridge_acceptance(
+                payload,
+                entry_price=float(entry) if entry is not None else 0.0,
+                stop_loss=float(req.sl),
+                take_profit=float(req.tp),
+            )
+        except Exception:
+            logger.debug("Signal tracking hook skipped.", exc_info=True)
 
         result = self.executor.send(req, dry_run=dry_run)
 

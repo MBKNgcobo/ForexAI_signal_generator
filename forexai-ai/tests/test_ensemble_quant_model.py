@@ -98,3 +98,64 @@ def test_three_model_weighted_blend():
 
     assert probabilities["BUY"] == pytest.approx(0.8)
     assert probabilities["SELL"] == pytest.approx(0.2)
+
+
+def test_predict_runs_each_member_exactly_once():
+    """Regression guard for SQA C-06.
+
+    ``predict`` previously called each member's ``predict`` AND then
+    ``predict_probabilities`` (which a SklearnQuantModel recomputes from
+    scratch), so every member inferred twice per call. The single-pass refactor
+    must invoke each member's probability path exactly once while producing the
+    same direction/probability/agreement.
+    """
+
+    class _CountingModel(FakeQuantModel):
+        def __init__(self, name, probabilities):
+            super().__init__(name, probabilities)
+            self.calls = 0
+
+        def predict_probabilities(self, features):
+            self.calls += 1
+            return super().predict_probabilities(features)
+
+        def predict(self, features):
+            # A stray ``predict`` call is the bug we are guarding against.
+            self.calls += 1
+            return super().predict(features)
+
+    m1 = _CountingModel("m1", {"BUY": 0.9})
+    m2 = _CountingModel("m2", {"BUY": 0.6})
+
+    ensemble = EnsembleQuantModel(models=[m1, m2])
+
+    prediction = ensemble.predict(None)
+
+    assert m1.calls == 1
+    assert m2.calls == 1
+    # Output is unchanged by the refactor.
+    assert prediction.direction == "BUY"
+    assert prediction.probability == pytest.approx(0.75)
+    assert prediction.model_agreement == pytest.approx(1.0)
+
+
+def test_predict_probabilities_runs_each_member_exactly_once():
+
+    class _CountingModel(FakeQuantModel):
+        def __init__(self, name, probabilities):
+            super().__init__(name, probabilities)
+            self.calls = 0
+
+        def predict_probabilities(self, features):
+            self.calls += 1
+            return super().predict_probabilities(features)
+
+    m1 = _CountingModel("m1", {"BUY": 1.0})
+    m2 = _CountingModel("m2", {"BUY": 1.0})
+
+    ensemble = EnsembleQuantModel(models=[m1, m2])
+
+    ensemble.predict_probabilities(None)
+
+    assert m1.calls == 1
+    assert m2.calls == 1

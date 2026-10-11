@@ -5,6 +5,13 @@ uncalibrated: a reported 0.72 does not mean "right 72% of the time". This
 module maps raw confidences to calibrated ones via small, auditable
 piecewise-linear tables stored in ``models/calibration.json``.
 
+CONTRACT (SQA C-08): the calibrated value is a HEURISTIC prior, not an
+empirical win-rate. The shipped tables are hand-seeded (mild shrinkage toward
+0.5); they are not derived from measured hit rates. Consumers must treat the
+``confidence`` field as a relative, calibrated signal - never as a guaranteed
+probability of profit. ``raw_confidence`` is always preserved alongside so the
+dashboard and auditors can see what the model reported before calibration.
+
 Design notes:
 - Pure stdlib, no new ML dependency; the table is data, regenerable from
   ``app/backtesting/threshold_analysis.py`` output.

@@ -4,6 +4,10 @@ from pydantic import BaseModel, Field
 class AgentAnalysis(BaseModel):
     direction: str
 
+    #: Calibrated confidence in [0, 1]. This is a HEURISTIC calibrated prior
+    #: (see app/services/confidence_calibration.py), NOT an empirical
+    #: win-rate and NOT a guaranteed probability of profit. Treat it as a
+    #: relative, calibrated signal only (SQA C-08).
     confidence: float = Field(
         ge=0.0,
         le=1.0,

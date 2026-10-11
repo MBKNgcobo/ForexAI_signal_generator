@@ -91,6 +91,33 @@ def _resolve_volume(args: argparse.Namespace) -> float:
         return 0.01
 
 
+def _build_volume_sizer(bridge_executor=None):
+    """Return a risk-based sizer callable, or None to keep fixed-lot sizing.
+
+    SQA C-05: when ``RISK_PERCENT`` is 0 (the default) this returns ``None`` and
+    the bridge keeps its fixed ``MT5_SIGNAL_VOLUME`` behaviour exactly. When set,
+    each signal is sized to risk that % of the account equity if its stop is
+    hit. Equity comes from the configured ``PAPER_INITIAL_BALANCE`` (the paper
+    account's starting balance) - a conservative, credential-free default that
+    works for both paper and dry-run modes without a live terminal.
+    """
+
+    from app.broker.position_sizing import compute_bridge_volume
+    from app.config import paper_initial_balance, risk_percent
+
+    if risk_percent() <= 0:
+        return None
+
+    def _sizer(payload, fixed_volume):
+        return compute_bridge_volume(
+            payload,
+            equity=float(paper_initial_balance()),
+            fallback_volume=fixed_volume,
+        )
+
+    return _sizer
+
+
 def live_mode_refused(live_flag: bool, dry_run_value: bool) -> bool:
     """Dual-key interlock: real orders need ``--live`` AND ``MT5_DRY_RUN=false``.
 
@@ -146,6 +173,7 @@ def _build_bridge(args: argparse.Namespace, mode: str):
             min_confidence=args.min_confidence,
             max_entry_drift_points=args.max_drift_points,
             price_source=source,
+            volume_sizer=_build_volume_sizer(executor),
         )
     else:
         from app.broker.mt5_executor import MT5TradeExecutor
@@ -158,6 +186,7 @@ def _build_bridge(args: argparse.Namespace, mode: str):
             volume=_resolve_volume(args),
             min_confidence=args.min_confidence,
             max_entry_drift_points=args.max_drift_points,
+            volume_sizer=_build_volume_sizer(executor),
         )
 
     return bridge

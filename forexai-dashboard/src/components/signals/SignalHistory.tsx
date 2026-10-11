@@ -30,7 +30,15 @@ function SignalHistory() {
   const [selectedSignalId, setSelectedSignalId] =
     useState<string | null>(null);
 
+  // Manual retry counter (F-02): setPage(page) with the same value is a
+  // React no-op, so the error state's "Try Again" button needs its own
+  // dependency to re-trigger the effect.
+  const [reloadTick, setReloadTick] =
+    useState(0);
+
   useEffect(() => {
+    let stale = false;
+
     async function loadHistory() {
       setLoading(true);
       setError(null);
@@ -42,6 +50,8 @@ function SignalHistory() {
           status || undefined
         );
 
+        if (stale) return;
+
         setHistory(data);
       } catch (err) {
         console.error(
@@ -49,18 +59,28 @@ function SignalHistory() {
           err
         );
 
+        if (stale) return;
+
         setError(
           err instanceof Error
             ? err.message
             : "Unable to load signal history."
         );
       } finally {
-        setLoading(false);
+        if (!stale) {
+          setLoading(false);
+        }
       }
     }
 
     loadHistory();
-  }, [page, status]);
+
+    // A newer request (page/status/reload changed) supersedes this one;
+    // its late result must not overwrite fresh data.
+    return () => {
+      stale = true;
+    };
+  }, [page, status, reloadTick]);
 
   function handleStatusChange(
     newStatus: string
@@ -137,7 +157,7 @@ function SignalHistory() {
           <button
             type="button"
             onClick={() =>
-              setPage(page)
+              setReloadTick((tick) => tick + 1)
             }
           >
             Try Again

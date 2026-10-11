@@ -794,6 +794,32 @@ def paper_spread_pips() -> float:
 
 
 @lru_cache(maxsize=1)
+def signal_entry_spread_pips() -> float:
+    """Half-spread charged to the live entry price (``SIGNAL_ENTRY_SPREAD_PIPS``).
+
+    Defaults to 1.5 pips, the same full spread (0.00015 on a 5-digit pair)
+    the quant threshold was validated net of (see ``risk_agent``). Half of it
+    is applied to the entry in the trade direction (BUY entry += half-spread,
+    SELL entry -= half-spread) so a live signal's effective fill and its
+    risk:reward match the friction-inclusive backtest, instead of the
+    frictionless close that would overstate R:R. Set 0 to disable (frictionless
+    entry). Negative or invalid falls back to the default.
+    """
+
+    raw = get_env("SIGNAL_ENTRY_SPREAD_PIPS", "1.5") or "1.5"
+
+    try:
+        parsed = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid SIGNAL_ENTRY_SPREAD_PIPS=%r, using 1.5.", raw
+        )
+        return 1.5
+
+    return parsed if parsed >= 0 else 1.5
+
+
+@lru_cache(maxsize=1)
 def paper_state_path() -> str:
     """Persisted virtual account file (``PAPER_STATE_PATH``)."""
 
@@ -909,6 +935,77 @@ def history_symbols() -> list[str]:
     ]
 
     return symbols
+
+
+@lru_cache(maxsize=1)
+def signal_db_path() -> str:
+    """SQLite file for accepted-signal tracking (``SIGNAL_DB_PATH``)."""
+
+    return get_env("SIGNAL_DB_PATH", "data/signals.db") or (
+        "data/signals.db"
+    )
+
+
+DEFAULT_SIGNAL_POLL_SECONDS = 15.0
+
+
+@lru_cache(maxsize=1)
+def signal_poll_seconds() -> float:
+    """Poll interval for accepted-signal SL/TP monitoring (default 15 s, min 2 s)."""
+
+    raw = get_env("SIGNAL_POLL_SECONDS", str(DEFAULT_SIGNAL_POLL_SECONDS)) or str(
+        DEFAULT_SIGNAL_POLL_SECONDS
+    )
+
+    try:
+        parsed = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid SIGNAL_POLL_SECONDS=%r, using %.1f.",
+            raw,
+            DEFAULT_SIGNAL_POLL_SECONDS,
+        )
+        return DEFAULT_SIGNAL_POLL_SECONDS
+
+    return parsed if parsed >= 2.0 else 2.0
+
+
+DEFAULT_SIGNAL_STALE_SECONDS = 300.0
+
+
+@lru_cache(maxsize=1)
+def signal_monitor_enabled() -> bool:
+    """Whether the app lifespan starts the background SL/TP monitor loop.
+
+    Defaults to true. ``SIGNAL_MONITOR_ENABLED=0`` disables it so tests can
+    drive the monitor deterministically with ``run_once()`` instead of racing
+    the background poll loop against live provider calls.
+    """
+
+    raw = (get_env("SIGNAL_MONITOR_ENABLED", "1") or "1").strip().lower()
+
+    return raw not in {"0", "false", "no", "off"}
+
+
+@lru_cache(maxsize=1)
+def signal_stale_seconds() -> float:
+    """Max age of a price quote before it counts as stale (default 300 s)."""
+
+    raw = get_env("SIGNAL_STALE_SECONDS", str(DEFAULT_SIGNAL_STALE_SECONDS)) or str(
+        DEFAULT_SIGNAL_STALE_SECONDS
+    )
+
+    try:
+        parsed = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid SIGNAL_STALE_SECONDS=%r, using %.0f.",
+            raw,
+            DEFAULT_SIGNAL_STALE_SECONDS,
+        )
+        return DEFAULT_SIGNAL_STALE_SECONDS
+
+    return parsed if parsed > 0 else DEFAULT_SIGNAL_STALE_SECONDS
 
 
 

@@ -10,12 +10,16 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.api.analysis import router as analysis_router
 from app.api.market_data import router as market_data_router
+from app.api.signals import get_monitor as get_signal_monitor
+from app.api.signals import get_store as get_signal_store
+from app.api.signals import router as signals_router
 from app.config import (
     configure_logging,
     cors_origins,
     get_env,
     log_configuration_status,
     missing_configuration,
+    signal_monitor_enabled,
 )
 from app.observability.context import set_request_id
 from app.observability.metrics import (
@@ -82,7 +86,26 @@ async def lifespan(app: FastAPI):
     log_configuration_status()
     _prewarm()
 
+    # Accepted-signal tracking: initialise the SQLite store (survives
+    # restarts) and start the single SL/TP monitor task. Both are
+    # idempotent so repeated startup creates exactly one worker.
+    try:
+        get_signal_store().initialise()
+    except Exception as exc:
+        logger.warning("Signal store init failed (non-fatal): %s", exc)
+    try:
+        if signal_monitor_enabled():
+            get_signal_monitor().start()
+    except Exception as exc:
+        logger.warning("Signal monitor start failed (non-fatal): %s", exc)
+
     yield
+
+    try:
+        monitor = get_signal_monitor()
+        await monitor.stop()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -207,3 +230,4 @@ async def metrics():
 
 app.include_router(analysis_router)
 app.include_router(market_data_router)
+app.include_router(signals_router)

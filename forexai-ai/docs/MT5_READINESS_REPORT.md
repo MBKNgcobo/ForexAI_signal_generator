@@ -14,7 +14,7 @@
 **Why 🟢:** the application contains a *real, tested* MT5 integration — not a
 mock: connection, market data, account/position reads, signal generation, a
 risk-gated execution path with mandatory stop-loss/take-profit, and a webhook
-bridge — all defaulting to **dry-run**, with a hermetic suite of 382 passing
+bridge — all defaulting to **dry-run**, with a hermetic suite of 432 passing
 tests including five dedicated MT5 test modules. Everything needed to safely
 evaluate the system on a demo account works *today*.
 
@@ -59,7 +59,7 @@ a supervised evaluation.
 | Verification CLIs (connection/data/orders/sync) | `scripts/check_mt5_*.py` | ✅ Implemented |
 | Backtesting with spread/slippage/commission | `app/backtesting/engine.py` | ✅ Implemented |
 | Observability (Prometheus, structured logs, request IDs) | `observability/` + `/metrics` | ✅ Implemented |
-| Hermetic test suite (382 tests, no network) | `tests/` incl. 5 MT5 modules | ✅ Passing |
+| Hermetic test suite (432 tests, no network) | `tests/` incl. 5 MT5 modules | ✅ Passing |
 
 ## Missing capabilities (verified absent by codebase search)
 
@@ -237,7 +237,7 @@ verdict is "supervised demo only" until the P0s are built.
 
 | Axis | Rating | Rationale |
 |---|---|---|
-| **Technical risk** | 🟢 Low | 382 hermetic tests, typed error taxonomy, fail-closed config, lazy imports, self-healing sync. Residual: bridge concurrency; open-position state lives only in MT5/sync snapshots (order events are persisted in the JSONL trade log). |
+| **Technical risk** | 🟢 Low | 432 hermetic tests, typed error taxonomy, fail-closed config, lazy imports, self-healing sync. Residual: bridge concurrency; open-position state lives only in MT5/sync snapshots (order events are persisted in the JSONL trade log). |
 | **Trading risk** | 🟠 High (until P0s) | Signal quality unproven out-of-sample; **no account-level limits**; fixed sizing; no dedup/kill switch. *Supervised* demo use keeps this acceptable — unattended use does not. |
 | **Security risk** | 🟢 Low | No committed secrets (`.env` git-ignored & untracked), no hardcoded credentials found, localhost-default bridge, optional token, SSRF allowlist, non-root Docker, optional API-key guard. Residual: token auth off by default (localhost assumption). |
 | **Operational risk** | 🟡 Medium | One Windows box runs terminal + service + bridge; MT5 IPC dies with the terminal; three processes to supervise; recovery is manual (restart order documented). |
@@ -311,7 +311,7 @@ additions to `app/broker/` and the bridge script. The current design is
 
 ---
 
-*Audit basis: full repository inspection; `python -m pytest -q` → **382 passed**;
+*Audit basis: full repository inspection; `python -m pytest -q` → **432 passed**;
 `ruff check app tests scripts` → clean; no secrets found in tracked files;
 MT5 integration traced end-to-end (connection → data → graph → bridge → executor).*
 

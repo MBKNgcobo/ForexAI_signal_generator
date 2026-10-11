@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-source confidence calibration (raw -> calibrated). Hand-seeded neutral prior: identity-ish with mild shrinkage toward 0.5 because LLM self-reported confidences skew overconfident. Regenerate from app/backtesting/threshold_analysis.py output (predicted-bucket -> empirical-win-rate) and keep this file git-tracked and auditable.",
+  "_comment": "Per-source confidence calibration (raw -> calibrated). IMPORTANT: these tables are a HAND-SEEDED HEURISTIC PRIOR, NOT empirical win-rates. They mildly shrink self-reported confidences toward 0.5 because LLM self-reports and raw ensemble probabilities skew overconfident. The 'confidence' field in an AiAnalysisResponse is therefore a calibrated heuristic, not a measured probability of being right; 'raw_confidence' is the uncalibrated model output. To make this empirical, regenerate the tables from app/backtesting/threshold_analysis.py output (predicted-bucket -> observed win-rate) on your own data, and record that derivation here.",
   "version": 1,
   "sources": {
     "technical": [[0.0, 0.0], [0.5, 0.5], [0.6, 0.57], [0.7, 0.64], [0.8, 0.71], [0.9, 0.78], [1.0, 0.85]],

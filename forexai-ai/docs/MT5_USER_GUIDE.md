@@ -342,7 +342,7 @@ python scripts/run_signal_bridge.py
 | Stage | Status | Evidence |
 |---|---|---|
 | MT5 demo account interface | ✅ Exists (external) | Your MT5 installation |
-| ForexAI service | ✅ Exists | `app/main.py`, 382 tests passing |
+| ForexAI service | ✅ Exists | `app/main.py`, 432 tests passing |
 | Market data (MT5 or cloud) | ✅ Exists | `mt5_market_data_provider.py`, `market_data_provider_factory.py` |
 | Technical / Fundamental / Quant agents | ✅ Exists | `app/agents/*`, LangGraph `forex_analysis_graph.py` |
 | Signal generation + explanation | ✅ Exists | `AiAnalysisResponse` + `explanation` block |
