@@ -1,0 +1,25 @@
+name: Bug report
+description: Report a reproducible problem
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Expected vs actual behaviour, with status codes / logs (redact secrets).
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Commands run, from repo root, e.g. pytest / compose commands.
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Python / .NET / Node versions, Docker version, commit hash.
+    validations:
+      required: false

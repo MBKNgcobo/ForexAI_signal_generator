@@ -8,7 +8,7 @@
 ![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white)
 ![Python](https://img.shields.io/badge/python-3.14-blue?logo=python&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![Tests](https://img.shields.io/badge/tests-346-brightgreen)
+![Tests](https://img.shields.io/badge/tests-382-brightgreen)
 
 
 </div>
@@ -183,7 +183,7 @@ injected as runtime environment variables only.
 ## Testing
 
 ```bash
-# Python AI service — 346 hermetic tests, no network, no credentials
+# Python AI service — 382 hermetic tests, no network, no credentials
 cd forexai-ai && python -m pytest -q
 
 # .NET API — unit tests
@@ -218,7 +218,7 @@ ForexAI_signal_generator/
 │   ├── app/api/                # routers, validation, X-API-Key guard
 │   ├── app/llm/                # provider factory, retries, typed errors
 │   ├── app/models/             # 21-feature engineering, LR/RF/XGBoost
-│   └── tests/                  # 346-test hermetic suite
+│   └── tests/                  # 382-test hermetic suite
 ├── forexai-dashboard/        # React 19 + Vite + lightweight-charts
 └── ForexAI_Architecture_v1.0/ # architecture documentation
 ```
@@ -228,7 +228,7 @@ ForexAI_signal_generator/
 - **Fail-soft by design** — the AI service starts without credentials, keeps `/health` alive, and returns `503` with `Retry-After` from the endpoint that actually needs the missing dependency.
 - **Validation at the HTTP boundary** — bad symbols, timeframes and limits are rejected with `422` before any paid LLM or provider call.
 - **Typed error contract** — `400` unsupported input · `401` auth · `422` schema · `502` unusable LLM output · `503` degraded dependency.
-- **Hermetic tests** — 346 Python tests with zero network access; CI runs without secrets.
+- **Hermetic tests** — 382 Python tests with zero network access; CI runs without secrets.
 - **Security** — optional constant-time `X-API-Key` guard, conditional CORS, JWT auth, non-root Docker images, secrets excluded from every image layer.
 - **Clean Architecture** on the .NET side keeps domain rules independent of EF Core and the transport layer, with an xUnit suite covering the use cases.
 
@@ -238,6 +238,14 @@ ForexAI_signal_generator/
 - [ ] Contract tests generated from the OpenAPI schema to catch drift against the .NET client.
 - [ ] Prometheus metrics and structured JSON logs across services.
 - [ ] Per-symbol rate limiting and cache warm-up for the provider layer.
+
+## Responsible use
+
+ForexAI signals are **experimental and for educational purposes only**. They are
+not guaranteed to be profitable and are **not financial advice**. Forex trading
+carries substantial risk of loss — validate every signal on a demo account,
+never trade capital you cannot afford to lose, and keep `MT5_DRY_RUN=true`
+until you have journaled sustained demo results.
 
 ---
 

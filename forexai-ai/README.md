@@ -207,7 +207,7 @@ signal bridge (gating, drift guard, audit events), the History Node gate and
 trade-log P&L, and the full graph round-trip.
 
 Configuration lives in `pyproject.toml` (`testpaths`, `asyncio_mode = "auto"`,
-`pythonpath = ["."]`), lint rules live under `[tool.ruff]`, and
+`pythonpath = ["."]`), lint rules live under `[tool.ruff]`, and the root
 `.github/workflows/ci.yml` runs `ruff` plus the suite on every push and pull
 request. Development-only tooling (`ruff`, `pytest-cov`) is pinned in
 `requirements-dev.txt` so the runtime image never carries it.
@@ -309,3 +309,11 @@ Three habits that resolved nearly all of these:
 - [x] Prometheus metrics (`/metrics`), structured JSON logs (`LOG_FORMAT=json`) and request IDs (`X-Request-ID`).
 - [ ] Contract tests generated from the OpenAPI schema to catch drift against the C# client.
 - [ ] Per-symbol rate limiting and cache warm-up for the provider layer.
+
+## Responsible use
+
+Signals emitted by this service are **experimental and for educational purposes
+only**. They are not guaranteed to be profitable and are **not financial
+advice**. Forex trading involves substantial risk of loss. Always validate on
+a demo account (`MT5_DRY_RUN=true`), journal results in
+`docs/MT5_TRADE_JOURNAL.md`, and never risk capital you cannot afford to lose.
