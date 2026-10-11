@@ -53,6 +53,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--server", default=None)
     parser.add_argument("--path", default=None)
     parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument(
+        "--attach",
+        action="store_true",
+        help=(
+            "Attach to the open terminal session instead of logging in. "
+            "No credentials required; the terminal must already be logged "
+            "in. Explicit credentials (flags or env) take precedence."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -65,15 +74,17 @@ def main() -> int:
     path = args.path or _getenv("MT5_PATH")
 
     if not login or not password or not server:
-        logger.error(
-            "Missing credentials: provide --login/--password/--server "
-            "or set MT5_LOGIN/MT5_PASSWORD/MT5_SERVER in .env "
-            "or the shell environment."
-        )
-        return 2
+        if not args.attach:
+            logger.error(
+                "Missing credentials: provide --login/--password/--server "
+                "or set MT5_LOGIN/MT5_PASSWORD/MT5_SERVER in .env "
+                "or the shell environment (or pass --attach to reuse the "
+                "open terminal session)."
+            )
+            return 2
 
     try:
-        login_int = int(login)
+        login_int = int(login) if login else None
     except ValueError:
         logger.error("MT5_LOGIN must be a numeric account number.")
         return 2
